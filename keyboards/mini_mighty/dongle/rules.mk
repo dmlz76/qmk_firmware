@@ -1,0 +1,3 @@
+SPI_DRIVER_REQUIRED = yes
+
+EXTRAFLAGS += -flto

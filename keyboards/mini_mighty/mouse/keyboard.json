@@ -1,0 +1,40 @@
+{
+    "manufacturer": "dimitrix llc",
+    "keyboard_name": "mini.mighty.mouse",
+    "maintainer": "dmlz76",
+    "url": "dimitrix.llc",
+    "usb": {
+        "device_version": "1.0.0",
+        "pid": "0x2041",    // LUFA Mouse Demo
+        "vid": "0x03EB"     // Atmel
+    },
+    "processor": "atmega32u2",
+    "bootloader": "atmel-dfu",
+    "features": {
+        "bootmagic": true,
+        "extrakey": false,
+        "mousekey": true,
+        "nkro": false,
+        "pointing_device": true,
+        "encoder": true
+    },
+    "matrix_pins": {
+        "direct": [
+            ["D7", "B6", "B7"]
+        ]
+    },
+    "encoder": {
+        "rotary": [
+            {"pin_a": "B5", "pin_b": "B4"}
+        ]
+    },
+    "layouts": {
+        "LAYOUT": {
+            "layout": [
+                {"label": "L", "matrix": [0, 0], "x": 0, "y": 0},
+                {"label": "M", "matrix": [0, 1], "x": 1, "y": 0},
+                 {"label": "R", "matrix": [0, 2], "x": 2, "y": 0}
+            ]
+        }
+    }
+}
