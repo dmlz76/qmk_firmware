@@ -1,0 +1,31 @@
+{
+    "manufacturer": "dimitrix llc",
+    "keyboard_name": "mini.mighty.dogle",
+    "maintainer": "dmlz76",
+    "url": "dimitrix.llc",
+    "usb": {
+        "device_version": "1.0.0",
+        "pid": "0x204B",    // LUFA Adapter Demo
+        "vid": "0x03EB"     // Atmel
+    },
+    "processor": "atmega32u2",
+    "bootloader": "atmel-dfu",
+    "features": {
+        "bootmagic": false,
+        "extrakey": false,
+        "mousekey": false,
+        "nkro": false,
+        "pointing_device": false,
+        "encoder": false
+    },
+    "matrix_pins": {
+        "direct": [
+            []
+        ]
+    },
+    "layouts": {
+        "LAYOUT": {
+            "layout": []
+        }
+    }
+}

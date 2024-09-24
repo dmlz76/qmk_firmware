@@ -181,6 +181,13 @@ void host_mouse_send(report_mouse_t *report) {
     report->boot_y = (report->y > 127) ? 127 : ((report->y < -127) ? -127 : report->y);
 #endif
     (*driver->send_mouse)(report);
+    if (debug_mouse) {
+        dprintf("mouse_report: %02X | %d %d %d %d", report->buttons, report->x, report->y, report->v, report->h);
+#ifdef MOUSE_EXTENDED_REPORT
+        dprintf(" | %d %d", report->boot_x, report->boot_y);
+#endif
+        dprint("\n");
+    }
 }
 
 void host_system_send(uint16_t usage) {
