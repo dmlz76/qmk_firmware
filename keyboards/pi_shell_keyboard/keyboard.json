@@ -1,6 +1,6 @@
 {
     "manufacturer": "dimitrix llc",
-    "keyboard_name": "chro_pi",
+    "keyboard_name": "(pi).keyboard",
     "maintainer": "dmlz76",
     "bootloader": "atmel-dfu",
     "diode_direction": "COL2ROW",
