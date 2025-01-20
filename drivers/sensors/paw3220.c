@@ -20,7 +20,7 @@
 #include "gpio.h"
 #include "pointing_device_internal.h"
 
-#define USE_LED_CURRENT_SOURCE_MODE 0
+#define USE_LED_CURRENT_SOURCE_MODE 1
 
 #define REG_PID1 0x00
 #define REG_PID2 0x01
@@ -132,16 +132,19 @@ void paw3220_init(void) {
     paw3220_write_reg(REG_CONFIG, 0x80); // full reset
     wait_us(5);
 
+#if USE_LED_CURRENT_SOURCE_MODE
+    paw3220_write_reg(REG_WRITE_PROTECT, 0x5A);
+    paw3220_write_reg(REG_LED_OPTION, 0x014); // 4 mA
+    paw3220_write_reg(REG_WRITE_PROTECT, 0x0);
+#endif
+
 #ifdef POINTING_DEVICE_DEBUG
     uint8_t pid1 = paw3220_read_reg(REG_PID1);
     uint8_t pid2 = paw3220_read_reg(REG_PID2);
-    pd_dprintf("PID1: %d, PID2: %d\n", pid1, pid2);
-#endif
+    pd_dprintf("PID1: 0x%02X, PID2: 0x%02X\n", pid1, pid2);
 
-#if USE_LED_CURRENT_SOURCE_MODE
-    paw3220_write_reg(REG_WRITE_PROTECT, 0x5A);
-    paw3220_write_reg(REG_LED_OPTION, 0x01A); // 10mA
-    paw3220_write_reg(REG_WRITE_PROTECT, 0x0);
+    uint8_t led_option = paw3220_read_reg(REG_LED_OPTION);
+    pd_dprintf("LED OPTION: 0x%02X\n", led_option);
 #endif
 }
 
