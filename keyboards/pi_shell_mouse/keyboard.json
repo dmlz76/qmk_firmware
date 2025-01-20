@@ -1,0 +1,41 @@
+{
+    "manufacturer": "dimitrix llc",
+    "keyboard_name": "(pi).mouse",
+    "maintainer": "dmlz76",
+    "url": "pi-shell.com",
+    "usb": {
+        "device_version": "1.0.0",
+        "pid": "0x0501",
+        "vid": "0x0120"
+    },
+    "processor": "atmega32u2",
+    "bootloader": "atmel-dfu",
+    "features": {
+        "bootmagic": false,
+        "extrakey": false,
+        "mousekey": true,
+        "nkro": false,
+        "pointing_device": true,
+        "encoder": true,
+        "console": false
+    },
+    "matrix_pins": {
+        "direct": [
+            ["B3", "B6", "B7"]
+        ]
+    },
+    "encoder": {
+        "rotary": [
+            {"pin_a": "B5", "pin_b": "B4"}
+        ]
+    },
+    "layouts": {
+        "LAYOUT": {
+            "layout": [
+                {"label": "L", "matrix": [0, 0], "x": 0, "y": 0},
+                {"label": "M", "matrix": [0, 1], "x": 1, "y": 0},
+                 {"label": "R", "matrix": [0, 2], "x": 2, "y": 0}
+            ]
+        }
+    }
+}

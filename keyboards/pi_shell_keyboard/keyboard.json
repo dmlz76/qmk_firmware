@@ -17,7 +17,7 @@
         "rows": ["C7", "C6", "B6", "B5", "B4", "D2"]
     },
     "processor": "atmega32u4",
-    "url": "",
+    "url": "pi-shell.com",
     "usb": {
         "device_version": "1.0.0",
         "pid": "0x0218",
