@@ -25,16 +25,43 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 // clang-format on
 
 void keyboard_post_init_user(void) {
-    // Customise these values to desired behaviour
-    debug_enable   = false;
-    debug_matrix   = false;
+#ifdef CONSOLE_ENABLE
+    debug_enable = true;
+    debug_keyboard = true;
+#else
+    debug_enable = false;
     debug_keyboard = false;
+#endif
 }
 
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     // If console is enabled, it will print the matrix position and status of each key pressed
 #ifdef CONSOLE_ENABLE
-    uprintf("KL: kc: 0x%04X, col: %2u, row: %2u, pressed: %u, time: %5u, int: %u, count: %u\n", keycode, record->event.key.col, record->event.key.row, record->event.pressed, record->event.time, record->tap.interrupted, record->tap.count);
+    uprintf("kc: 0x%04X, col: %2u, row: %2u, pressed: %u, time: %5u, int: %u, count: %u\n", keycode, record->event.key.col, record->event.key.row, record->event.pressed, record->event.time, record->tap.interrupted, record->tap.count);
+#endif
+    return true;
+}
+
+bool process_detected_host_os_kb(os_variant_t os)
+{
+#ifdef CONSOLE_ENABLE
+    switch (os) {
+        case OS_MACOS:
+            uprintf("MacOS detected\n");
+            break;
+        case OS_IOS:
+            uprintf("iOS detected\n");
+            break;
+        case OS_WINDOWS:
+            uprintf("Windows detected\n");
+            break;
+        case OS_LINUX:
+            uprintf("Linux detected\n");
+            break;
+        case OS_UNSURE:
+            uprintf("Unable to detect host OS\n");
+            break;
+    }
 #endif
     return true;
 }

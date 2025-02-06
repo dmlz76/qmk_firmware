@@ -1,1 +1,3 @@
+OS_DETECTION_ENABLE = yes
+
 EXTRAFLAGS += -flto
