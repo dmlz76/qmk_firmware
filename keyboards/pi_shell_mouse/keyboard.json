@@ -21,7 +21,7 @@
     },
     "matrix_pins": {
         "direct": [
-            ["B3", "B6", "B7"]
+            ["D7", "B6", "B7"]
         ]
     },
     "encoder": {

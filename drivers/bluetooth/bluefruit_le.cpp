@@ -32,12 +32,17 @@
 #    define BLUEFRUIT_LE_SCK_DIVISOR 2 // 4MHz SCK/8MHz CPU, calculated for Feather 32U4 BLE
 #endif
 
-#define SAMPLE_BATTERY
-#define ConnectionUpdateInterval 1000 /* milliseconds */
-
-#ifndef BATTERY_LEVEL_PIN
-#    define BATTERY_LEVEL_PIN B5
+#ifndef BLUEFRUIT_LE_SAMPLE_BATTERY
+#    define BLUEFRUIT_LE_SAMPLE_BATTERY 1
 #endif
+
+#if BLUEFRUIT_LE_SAMPLE_BATTERY
+#    ifndef BATTERY_LEVEL_PIN
+#        define BATTERY_LEVEL_PIN B5
+#    endif
+#endif
+
+#define ConnectionUpdateInterval 1000 /* milliseconds */
 
 static struct {
     bool is_connected;
@@ -48,7 +53,7 @@ static struct {
 #define UsingEvents 2
     bool event_flags;
 
-#ifdef SAMPLE_BATTERY
+#if BLUEFRUIT_LE_SAMPLE_BATTERY
     uint16_t last_battery_update;
     uint32_t vbat;
 #endif
@@ -550,7 +555,7 @@ void bluefruit_le_task(void) {
         }
     }
 
-#ifdef SAMPLE_BATTERY
+#if BLUEFRUIT_LE_SAMPLE_BATTERY
     if (timer_elapsed(state.last_battery_update) > BatteryUpdateInterval && resp_buf.empty()) {
         state.last_battery_update = timer_read();
 
@@ -656,7 +661,11 @@ void bluefruit_le_send_mouse(report_mouse_t *report) {
 }
 
 uint32_t bluefruit_le_read_battery_voltage(void) {
+#if BLUEFRUIT_LE_SAMPLE_BATTERY
     return state.vbat;
+#else
+    return 0;
+#endif
 }
 
 bool bluefruit_le_set_mode_leds(bool on) {
