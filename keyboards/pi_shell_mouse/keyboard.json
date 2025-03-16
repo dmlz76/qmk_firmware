@@ -13,11 +13,10 @@
     "features": {
         "bootmagic": false,
         "extrakey": false,
-        "mousekey": true,
+        "mousekey": false,
         "nkro": false,
         "pointing_device": true,
-        "encoder": true,
-        "console": false
+        "encoder": true
     },
     "matrix_pins": {
         "direct": [

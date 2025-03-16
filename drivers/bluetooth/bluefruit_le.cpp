@@ -42,6 +42,8 @@
 #    endif
 #endif
 
+#define BLUEFRUIT_LE_LSBFIRST false
+
 #define ConnectionUpdateInterval 1000 /* milliseconds */
 
 static struct {
@@ -136,37 +138,61 @@ enum ble_system_event_bits {
     BleSystemMidiRx       = 10,
 };
 
+#define SdepPostSelectWait 250      /* microseconds */
 #define SdepTimeout 150             /* milliseconds */
 #define SdepShortTimeout 10         /* milliseconds */
-#define SdepBackOff 25              /* microseconds */
+#define SdepBackOff 100             /* microseconds */
 #define BatteryUpdateInterval 10000 /* milliseconds */
 
 static bool at_command(const char *cmd, char *resp, uint16_t resplen, bool verbose, uint16_t timeout = SdepTimeout);
-static bool at_command_P(const char *cmd, char *resp, uint16_t resplen, bool verbose = false);
+static bool at_command_P(const char *cmd, char *resp, uint16_t resplen, bool verbose = true);
 
 // Send a single SDEP packet
 static bool sdep_send_pkt(const struct sdep_msg *msg, uint16_t timeout) {
-    spi_start(BLUEFRUIT_LE_CS_PIN, false, 0, BLUEFRUIT_LE_SCK_DIVISOR);
+    dprintf("sdep_send_pkt: %d %d\n", msg->cmd_high, msg->cmd_low);
+
+    spi_start(BLUEFRUIT_LE_CS_PIN, BLUEFRUIT_LE_LSBFIRST, 0, BLUEFRUIT_LE_SCK_DIVISOR);
+    wait_us(SdepPostSelectWait);
     uint16_t timerStart = timer_read();
     bool     success    = false;
     bool     ready      = false;
 
+    sdep_type type = SdepCommand;
     do {
-        ready = spi_write(msg->type) != SdepSlaveNotReady;
-        if (ready) {
+        spi_status_t type_status = spi_write(msg->type);
+        if (type_status < 0) {
+            dprintf("SDEP type transmission failed\n");
             break;
         }
-
-        // Release it and let it initialize
+        type = (sdep_type)type_status;
+        if (type != SdepSlaveNotReady) {
+            ready = true;
+            break;
+        }
         spi_stop();
         wait_us(SdepBackOff);
-        spi_start(BLUEFRUIT_LE_CS_PIN, false, 0, BLUEFRUIT_LE_SCK_DIVISOR);
+        spi_start(BLUEFRUIT_LE_CS_PIN, BLUEFRUIT_LE_LSBFIRST, 0, BLUEFRUIT_LE_SCK_DIVISOR);
+        wait_us(SdepPostSelectWait);
     } while (timer_elapsed(timerStart) < timeout);
 
     if (ready) {
         // Slave is ready; send the rest of the packet
-        spi_transmit(&msg->cmd_low, sizeof(*msg) - (1 + sizeof(msg->payload)) + msg->len);
-        success = true;
+        uint8_t payload_bytes = sizeof(msg->cmd_low) + sizeof(msg->cmd_high) + 1 + msg->len;
+        success               = spi_transmit(&msg->cmd_low, payload_bytes) == SPI_STATUS_SUCCESS;
+        if (!success) {
+            dprint("SDEP payload transmission failed\n");
+        }
+    } else {
+        dprintf("SDEP not ready after %dms\n", timer_elapsed(timerStart));
+        if (type == SdepError) {
+            dprintf("SDEP error\n");
+        } else if (type == SdepAlert) {
+            dprintf("SDEP alert\n");
+        } else if (type == SdepSlaveNotReady) {
+            dprintf("SDEP slave not ready\n");
+        } else if (type == SdepSlaveOverflow) {
+            dprintf("SDEP slave overflow\n");
+        }
     }
 
     spi_stop();
@@ -175,6 +201,8 @@ static bool sdep_send_pkt(const struct sdep_msg *msg, uint16_t timeout) {
 }
 
 static inline void sdep_build_pkt(struct sdep_msg *msg, uint16_t command, const uint8_t *payload, uint8_t len, bool moredata) {
+    dprintf("sdep_build_pkt: %d %d\n", command, len);
+
     msg->type     = SdepCommand;
     msg->cmd_low  = command & 0xFF;
     msg->cmd_high = command >> 8;
@@ -188,6 +216,8 @@ static inline void sdep_build_pkt(struct sdep_msg *msg, uint16_t command, const 
 
 // Read a single SDEP packet
 static bool sdep_recv_pkt(struct sdep_msg *msg, uint16_t timeout) {
+    dprintf("sdep_recv_pkt\n");
+
     bool     success    = false;
     uint16_t timerStart = timer_read();
     bool     ready      = false;
@@ -201,27 +231,61 @@ static bool sdep_recv_pkt(struct sdep_msg *msg, uint16_t timeout) {
     } while (timer_elapsed(timerStart) < timeout);
 
     if (ready) {
-        spi_start(BLUEFRUIT_LE_CS_PIN, false, 0, BLUEFRUIT_LE_SCK_DIVISOR);
+        spi_start(BLUEFRUIT_LE_CS_PIN, BLUEFRUIT_LE_LSBFIRST, 0, BLUEFRUIT_LE_SCK_DIVISOR);
+        wait_us(SdepPostSelectWait);
 
         do {
             // Read the command type, waiting for the data to be ready
-            msg->type = spi_read();
+            spi_status_t type_status = spi_read();
+            if (type_status < 0) {
+                dprintf("SDEP type reception failed\n");
+                break;
+            }
+            msg->type = (sdep_type)type_status;
             if (msg->type == SdepSlaveNotReady || msg->type == SdepSlaveOverflow) {
                 // Release it and let it initialize
                 spi_stop();
                 wait_us(SdepBackOff);
-                spi_start(BLUEFRUIT_LE_CS_PIN, false, 0, BLUEFRUIT_LE_SCK_DIVISOR);
+                spi_start(BLUEFRUIT_LE_CS_PIN, BLUEFRUIT_LE_LSBFIRST, 0, BLUEFRUIT_LE_SCK_DIVISOR);
+                wait_us(SdepPostSelectWait);
+                continue;
+            }
+
+            if (msg->type != SdepResponse && msg->type != SdepError) {
+                dprintf("SDEP unexpected type %02X\n", msg->type);
                 continue;
             }
 
             // Read the rest of the header
-            spi_receive(&msg->cmd_low, sizeof(*msg) - (1 + sizeof(msg->payload)));
+            uint8_t      header_bytes  = sizeof(msg->cmd_low) + sizeof(msg->cmd_high) + 1;
+            spi_status_t header_status = spi_receive(&msg->cmd_low, header_bytes);
+            if (header_status < 0) {
+                dprintf("SDEP header reception failed\n");
+                break;
+            }
+
+            if (msg->type == SdepError) {
+                dprintf("SDEP error %02X%02X\n", msg->cmd_high, msg->cmd_low);
+                break;
+            }
+
+            if (msg->len == 0) {
+                dprintf("SDEP no payload\n");
+                break;
+            }
+
+            if (msg->len > SdepMaxPayload) {
+                dprintf("SDEP payload too large %d\n", msg->len);
+                break;
+            }
+
+            if (msg->more && msg->len < SdepMaxPayload) {
+                dprintf("SDEP more flag with short payload %d\n", msg->len);
+                break;
+            }
 
             // and get the payload if there is any
-            if (msg->len <= SdepMaxPayload) {
-                spi_receive(msg->payload, msg->len);
-            }
-            success = true;
+            success = spi_receive(msg->payload, msg->len) == SPI_STATUS_SUCCESS;
             break;
         } while (timer_elapsed(timerStart) < timeout);
 
@@ -237,14 +301,28 @@ static void resp_buf_read_one(bool greedy) {
     }
 
     if (gpio_read_pin(BLUEFRUIT_LE_IRQ_PIN)) {
-        struct sdep_msg msg;
+        dprintf("waiting_for_result: IRQ high\n");
 
+        char resbuf[64];
+        int  resoffset = 0;
     again:
+        struct sdep_msg msg;
         if (sdep_recv_pkt(&msg, SdepTimeout)) {
-            if (!msg.more) {
+            if (resoffset + msg.len >= sizeof(resbuf)) {
+                dprintf("recv buffer overflow, '%s'\n", resbuf);
+                resoffset = 0;
+            }
+
+            memcpy(resbuf + resoffset, msg.payload, msg.len);
+            resoffset += msg.len;
+            resbuf[resoffset] = 0;
+
+            if (msg.more) {
+                goto again;
+            } else {
                 // We got it; consume this entry
                 resp_buf.get(last_send);
-                dprintf("recv latency %dms\n", TIMER_DIFF_16(timer_read(), last_send));
+                dprintf("recv '%s', latency %dms\n", resbuf, TIMER_DIFF_16(timer_read(), last_send));
             }
 
             if (greedy && resp_buf.peek(last_send) && gpio_read_pin(BLUEFRUIT_LE_IRQ_PIN)) {
@@ -302,6 +380,13 @@ void bluefruit_le_init(void) {
 
     spi_init();
 
+    struct sdep_msg msg;
+    sdep_build_pkt(&msg, BleInitialize, NULL, 0, false);
+    if (!sdep_send_pkt(&msg, 1000)) {
+        dprint("sdep_send_pkt BleInitialize failed\n");
+        return;
+    }
+
     // Perform a hardware reset
     gpio_set_pin_output(BLUEFRUIT_LE_RST_PIN);
     gpio_write_pin_high(BLUEFRUIT_LE_RST_PIN);
@@ -349,6 +434,8 @@ static bool read_response(char *resp, uint16_t resplen, bool verbose) {
 
     // Ensure the response is NUL terminated
     *dest = 0;
+
+    // dprintf("response: '%s'\n", resp);
 
     // "Parse" the result text; we want to snip off the trailing OK or ERROR line
     // Rewind past the possible trailing CRLF so that we can strip it
@@ -442,7 +529,7 @@ bool bluefruit_le_enable_keyboard(void) {
     state.configured = false;
 
     // Disable command echo
-    static const char kEcho[] PROGMEM = "ATE=0";
+    static const char kEcho[] PROGMEM = "ATE=1";
     // Make the advertised name match the keyboard
     static const char kGapDevName[] PROGMEM = "AT+GAPDEVNAME=" PRODUCT;
     // Turn on keyboard support
@@ -460,8 +547,11 @@ bool bluefruit_le_enable_keyboard(void) {
 
     // Turn down the power level a bit
     static const char  kPower[] PROGMEM             = "AT+BLEPOWERLEVEL=-12";
+
+    static const char kATI[] PROGMEM = "ATI";
+
     static PGM_P const configure_commands[] PROGMEM = {
-        kEcho, kGapIntervals, kGapDevName, kHidEnOn, kPower, kATZ,
+        kEcho, kATI, kGapIntervals, kGapDevName, kHidEnOn, kPower, kATZ,
     };
 
     uint8_t i;
@@ -476,6 +566,8 @@ bool bluefruit_le_enable_keyboard(void) {
     }
 
     state.configured = true;
+
+    wait_ms(1000); // Give it a second to initialize
 
     // Check connection status in a little while; allow the ATZ time
     // to kick in.
@@ -565,7 +657,7 @@ void bluefruit_le_task(void) {
 }
 
 static bool process_queue_item(struct queue_item *item, uint16_t timeout) {
-    char cmdbuf[48];
+    char cmdbuf[64];
     char fmtbuf[64];
 
     // Arrange to re-check connection after keys have settled
