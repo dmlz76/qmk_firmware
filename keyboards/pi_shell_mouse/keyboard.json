@@ -13,7 +13,7 @@
     "features": {
         "bootmagic": false,
         "extrakey": false,
-        "mousekey": false,
+        "mousekey": true,
         "nkro": false,
         "pointing_device": true,
         "encoder": true
