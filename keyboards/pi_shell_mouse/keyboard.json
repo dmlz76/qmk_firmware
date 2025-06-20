@@ -1,17 +1,17 @@
 {
     "manufacturer": "dimitrix llc",
-    "keyboard_name": "(pi).mouse",
+    "keyboard_name": "mini.mighty.mouse",
     "maintainer": "dmlz76",
-    "url": "pi-shell.com",
+    "url": "dimitrix.llc",
     "usb": {
         "device_version": "1.0.0",
-        "pid": "0x0501",
-        "vid": "0x0120"
+        "pid": "0x2041",    // LUFA Mouse Demo
+        "vid": "0x03EB"     // Atmel
     },
     "processor": "atmega32u2",
     "bootloader": "atmel-dfu",
     "features": {
-        "bootmagic": false,
+        "bootmagic": true,
         "extrakey": false,
         "mousekey": true,
         "nkro": false,

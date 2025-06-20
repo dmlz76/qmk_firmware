@@ -1,7 +1,8 @@
 {
     "manufacturer": "dimitrix llc",
-    "keyboard_name": "(pi).keyboard",
+    "keyboard_name": "mini.mighty.kbd",
     "maintainer": "dmlz76",
+    "url": "dimitrix.llc",
     "bootloader": "atmel-dfu",
     "diode_direction": "COL2ROW",
     "features": {
@@ -17,11 +18,10 @@
         "rows": ["C6", "C7", "B7", "B6", "B5", "B0"]
     },
     "processor": "atmega32u2",
-    "url": "pi-shell.com",
     "usb": {
         "device_version": "1.0.0",
-        "pid": "0x0218",
-        "vid": "0x0120"
+        "pid": "0x2042",    // LUFA Keyboard Demo
+        "vid": "0x03EB"     // Atmel
     },
     "layouts": {
         "LAYOUT": {

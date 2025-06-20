@@ -5,7 +5,7 @@ POINTING_DEVICE_DRIVER = paw3220
 BLUETOOTH_ENABLE = yes
 BLUETOOTH_DRIVER = custom
 SPI_DRIVER_REQUIRED = yes
-SRC += bluetooth_custom.c
+SRC += bluetooth_custom.cpp
 
 CONSOLE_ENABLE = no
 
