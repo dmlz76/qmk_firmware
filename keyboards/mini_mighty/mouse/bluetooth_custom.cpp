@@ -7,6 +7,7 @@ extern "C" {
 #include "debug.h"
 #include "ringbuffer.hpp"
 #include "timer.h"
+#include "transfer_blob.h"
 #include <assert.h>
 
 #define RST_PIN D4
@@ -19,18 +20,6 @@ extern "C" {
 #define Timeout 150             /* milliseconds */
 #define ShortTimeout 10         /* milliseconds */
 #define BackOff 100             /* microseconds */
-
-typedef union
-{
-    struct
-    {
-        uint8_t buttons;
-        int8_t x; // Horizontal movement
-        int8_t y; // Vertical movement
-        int8_t v; // Vertical scroll
-    };    
-    uint8_t raw[4]; 
-} transfer_blob_t;
 
 static RingBuffer<transfer_blob_t, 40> send_buf;
 
