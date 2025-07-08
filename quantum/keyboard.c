@@ -591,8 +591,7 @@ static bool matrix_task(void) {
 
     static matrix_row_t matrix_previous[MATRIX_ROWS];
 
-    matrix_scan();
-    bool matrix_changed = false;
+    bool matrix_changed = matrix_scan();
     for (uint8_t row = 0; row < MATRIX_ROWS && !matrix_changed; row++) {
         matrix_changed |= matrix_previous[row] ^ matrix_get_row(row);
     }

@@ -20,12 +20,23 @@
     },
     "matrix_pins": {
         "direct": [
-            []
+            [
+                "NO_PIN"
+            ]
         ]
     },
     "layouts": {
         "LAYOUT": {
-            "layout": []
+            "layout": [
+                {
+                    "matrix": [
+                        0,
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                }
+            ]
         }
     }
 }
