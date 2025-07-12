@@ -8,10 +8,9 @@
     "features": {
         "bootmagic": true,
         "command": false,
-        "console": false,
         "extrakey": true,
         "mousekey": false,
-        "nkro": true
+        "nkro": false
     },
     "matrix_pins": {
         "cols": ["B2", "B1", "B3", "B4", "C5", "C4", "D5", "D6", "D7", "C2", "D3", "D2", "D1", "D0"],
@@ -20,8 +19,8 @@
     "processor": "atmega32u2",
     "usb": {
         "device_version": "1.0.0",
-        "pid": "0x2042",    // LUFA Keyboard Demo
-        "vid": "0x03EB"     // Atmel
+        "pid": "0xE4DD", // Mini Mighty Kbd
+        "vid": "0x04D8" // Microchip
     },
     "layouts": {
         "LAYOUT": {

@@ -6,4 +6,8 @@ VPATH += keyboards/mini_mighty/common
 
 CONSOLE_ENABLE = no
 
+SPACE_CADET_ENABLE = no
+GRAVE_ESC_ENABLE = no 
+MAGIC_ENABLE = no
+
 EXTRAFLAGS += -flto

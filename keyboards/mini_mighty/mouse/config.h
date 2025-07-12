@@ -10,5 +10,7 @@
 //#define POINTING_DEVICE_DEBUG
 #endif
 
-//#define NO_ACTION_TAPPING
-//#define NO_ACTION_ONESHOT
+#define NO_ACTION_TAPPING
+#define NO_ACTION_ONESHOT
+
+#define NO_ACTION_LAYER
