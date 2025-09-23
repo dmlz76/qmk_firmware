@@ -16,7 +16,7 @@
         "cols": ["B2", "B1", "B3", "B4", "C5", "C4", "D5", "D6", "D7", "C2", "D3", "D2", "D1", "D0"],
         "rows": ["C6", "C7", "B7", "B6", "B5", "B0"]
     },
-    "processor": "atmega32u2",
+    "processor": "atmega16u2",
     "usb": {
         "device_version": "1.0.0",
         "pid": "0xE4DD", // Mini Mighty Kbd
