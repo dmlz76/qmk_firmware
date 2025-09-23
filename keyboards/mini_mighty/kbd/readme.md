@@ -1,12 +1,12 @@
-# mini_mighty_keyboard
+# mini_mighty_kbd
 
 ![mini_mighty_kbd](imgur.com image replace me!)
 
 *A short description of the keyboard/project*
 
 * Keyboard Maintainer: [dmlz76](https://github.com/dmlz76)
-* Hardware Supported: *The PCBs, controllers supported*
-* Hardware Availability: dimitrix.llc
+* Hardware Supported: mini·mighty·kbd v2.3 or later PCB
+* Hardware Availability: https://dimitrix.llc
 
 Make example for this keyboard (after setting up your build environment):
 
@@ -24,4 +24,3 @@ Enter the bootloader:
 
 * **Bootmagic reset**: Hold down the ESC key and plug in the keyboard
 * **Physical reset pad**: Briefly short the "RESET" pad on the back of the PCB
-
