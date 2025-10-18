@@ -8,7 +8,7 @@
         "pid": "0x2041",    // LUFA Mouse Demo
         "vid": "0x03EB"     // Atmel
     },
-    "processor": "atmega32u2",
+    "processor": "atmega16u2",
     "bootloader": "atmel-dfu",
     "features": {
         "bootmagic": true,
