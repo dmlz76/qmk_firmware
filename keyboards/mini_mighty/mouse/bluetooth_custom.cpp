@@ -1,5 +1,6 @@
 extern "C" {
 #include "bluetooth.h"
+#include "connection.h"
 }
 #include "gpio.h"
 #include "spi_master.h"
@@ -21,20 +22,33 @@ extern "C" {
 #define ShortTimeout 10         /* milliseconds */
 #define BackOff 100             /* microseconds */
 
+#define BLE_STATE_UNKNOWN 0
+#define BLE_STATE_OFF -1
+#define BLE_STATE_ON 1
+
+static int                             ble_state = BLE_STATE_UNKNOWN;
 static RingBuffer<transfer_blob_t, 40> send_buf;
 
-extern "C" void bluetooth_init(void) 
-{
-    spi_init();
+void ble_turn_on() {
+    if (ble_state == BLE_STATE_ON) {
+        return;
+    }
 
-    // Perform a hardware reset
-    gpio_set_pin_output(RST_PIN);
     gpio_write_pin_high(RST_PIN);
+    wait_ms(1000); // Give it a second to initialize
+
+    ble_state = BLE_STATE_ON;
+}
+
+void ble_turn_off() {
+    if (ble_state == BLE_STATE_OFF) {
+        return;
+    }
+
     gpio_write_pin_low(RST_PIN);
     wait_ms(10);
-    gpio_write_pin_high(RST_PIN);
 
-    wait_ms(1000); // Give it a second to initialize
+    ble_state = BLE_STATE_OFF;
 }
 
 static bool process_blob(const transfer_blob_t &blob, uint16_t timeout) 
@@ -88,11 +102,23 @@ static bool send_buf_send_one(uint16_t timeout = Timeout)
     return false;
 }
 
-extern "C" void bluetooth_task(void) 
-{  
-    send_buf_send_one(ShortTimeout);
+extern "C" void bluetooth_init(void) {
+    spi_init();
+
+    gpio_set_pin_output(RST_PIN);
 }
 
+extern "C" void bluetooth_task(void) {
+    connection_host_t connection = connection_get_host();
+    if (connection == CONNECTION_HOST_BLUETOOTH) {
+        ble_turn_on();
+        send_buf_send_one(ShortTimeout);
+    } else
+        ble_turn_off();
+    transfer_blob_t blob;
+    while (send_buf.get(blob)) {
+    }
+}
 
 extern "C" void bluetooth_send_keyboard(report_keyboard_t *report)
 {
