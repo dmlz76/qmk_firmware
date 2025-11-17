@@ -37,6 +37,10 @@ void keyboard_post_init_user(void) {
 #endif
 }
 
+void pointing_device_init_kb(void) {
+    pointing_device_set_cpi(1600);
+}
+
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     // If console is enabled, it will print the matrix position and status of each key pressed
 #ifdef CONSOLE_ENABLE
