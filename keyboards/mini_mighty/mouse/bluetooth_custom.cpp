@@ -31,11 +31,9 @@ extern "C" {
 #define BLE_STATE_ON 1
 
 #define ENABLE_POWER_SAVINGS 1
-#define ENABLE_POWER_SAVINGS_BLE 0
 
 #if ENABLE_POWER_SAVINGS
-#    define POWER_SAVE_TIMEOUT_MS 10000     // 10 sec
-#    define POWER_SAVE_BLE_TIMEOUT_MS 60000 // 1 min
+#    define POWER_SAVE_TIMEOUT_MS 10000 // 10 sec
 static uint32_t last_processed_blob_time = 0;
 static uint8_t  power_save_level         = 0;
 #endif
@@ -106,14 +104,7 @@ static bool send_buf_send_one(uint16_t timeout = Timeout)
 #if ENABLE_POWER_SAVINGS
         // Power saving
         uint32_t time_diff = timer_elapsed32(last_processed_blob_time);
-#    if ENABLE_POWER_SAVINGS_BLE
-        if (time_diff > POWER_SAVE_BLE_TIMEOUT_MS) {
-            power_save_level = 2;
-            ble_turn_off();
-            suspend_power_down();
-        } else
-#    endif
-            if (time_diff > POWER_SAVE_TIMEOUT_MS) {
+        if (time_diff > POWER_SAVE_TIMEOUT_MS) {
             power_save_level = 1;
             suspend_power_down();
         }
@@ -127,7 +118,6 @@ static bool send_buf_send_one(uint16_t timeout = Timeout)
         suspend_wakeup_init();
     }
 #endif
-    ble_turn_on();
 
     if (process_blob(blob, timeout)) {
         // commit that peek
@@ -151,6 +141,7 @@ extern "C" void bluetooth_init(void) {
 extern "C" void bluetooth_task(void) {
     connection_host_t connection = connection_get_host();
     if (connection == CONNECTION_HOST_BLUETOOTH) {
+        ble_turn_on();
         send_buf_send_one(ShortTimeout);
     } else {
         ble_turn_off();
