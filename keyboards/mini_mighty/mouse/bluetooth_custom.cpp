@@ -16,6 +16,7 @@ extern "C" {
 #include <assert.h>
 
 #define RST_PIN D4
+#define SLEEP_PIN D5
 #define SCK_DIVISOR 8 // 2MHz SCK/16MHz CPU
 
 #define LSBFIRST false
@@ -34,6 +35,7 @@ extern "C" {
 
 #if ENABLE_POWER_SAVINGS
 #    define POWER_SAVE_TIMEOUT_MS 10000 // 10 sec
+#    define BLE_OFF_TIMEOUT_MS 600000   // 10 min
 static uint32_t last_processed_blob_time = 0;
 static uint8_t  power_save_level         = 0;
 #endif
@@ -46,6 +48,11 @@ static void ble_turn_on() {
         return;
     }
 
+    gpio_write_pin_high(SLEEP_PIN);
+
+    gpio_write_pin_high(RST_PIN);
+    gpio_write_pin_low(RST_PIN);
+    wait_ms(10);
     gpio_write_pin_high(RST_PIN);
     wait_ms(1000); // Give it a second to initialize
 
@@ -57,8 +64,7 @@ static void ble_turn_off() {
         return;
     }
 
-    gpio_write_pin_low(RST_PIN);
-    wait_ms(10);
+    gpio_write_pin_low(SLEEP_PIN);
 
     ble_state = BLE_STATE_OFF;
 }
@@ -105,7 +111,15 @@ static bool send_buf_send_one(uint16_t timeout = Timeout)
         // Power saving
         uint32_t time_diff = timer_elapsed32(last_processed_blob_time);
         if (time_diff > POWER_SAVE_TIMEOUT_MS) {
-            power_save_level = 1;
+            if (power_save_level == 0) {
+                power_save_level = 1;
+            }
+            if (time_diff > BLE_OFF_TIMEOUT_MS) {
+                if (power_save_level == 1) {
+                    power_save_level = 2;
+                    ble_turn_off();
+                }
+            }
             suspend_power_down();
         }
 #endif
@@ -113,9 +127,12 @@ static bool send_buf_send_one(uint16_t timeout = Timeout)
     }
 
 #if ENABLE_POWER_SAVINGS
-    if (power_save_level) {
-        power_save_level = 0;
+    if (power_save_level > 0) {
         suspend_wakeup_init();
+        if (power_save_level == 2) {
+            ble_turn_on();
+        }
+        power_save_level = 0;
     }
 #endif
 
@@ -136,20 +153,13 @@ extern "C" void bluetooth_init(void) {
     spi_init();
 
     gpio_set_pin_output(RST_PIN);
+    gpio_set_pin_output(SLEEP_PIN);
+
+    ble_turn_on();
 }
 
 extern "C" void bluetooth_task(void) {
-    connection_host_t connection = connection_get_host();
-    if (connection == CONNECTION_HOST_BLUETOOTH) {
-        ble_turn_on();
-        send_buf_send_one(ShortTimeout);
-    } else {
-        ble_turn_off();
-        // clear out any remaining blobs
-        transfer_blob_t blob;
-        while (send_buf.get(blob)) {
-        }
-    }
+    send_buf_send_one(ShortTimeout);
 }
 
 extern "C" void bluetooth_send_keyboard(report_keyboard_t *report)
