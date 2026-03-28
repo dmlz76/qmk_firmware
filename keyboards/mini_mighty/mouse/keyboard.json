@@ -1,39 +1,49 @@
 {
-    "manufacturer": "dimitrix llc",
-    "keyboard_name": "mini.mighty.mouse",
-    "maintainer": "dmlz76",
-    "url": "dimitrix.llc",
-    "usb": {
-        "device_version": "1.0.0",
-        "pid": "0x2041",    // LUFA Mouse Demo
-        "vid": "0x03EB"     // Atmel
+    "manufacturer": "Dimitrix LLC",
+    "keyboard_name": "mini-mighty-mouse",
+    "maintainer": "dimitrix-llc",
+    "bluetooth": {
+        "driver": "custom"
     },
-    "processor": "atmega16u2",
     "bootloader": "atmel-dfu",
-    "features": {
-        "bootmagic": true,
-        "extrakey": false,
-        "mousekey": true,
-        "nkro": false,
-        "pointing_device": true,
-        "encoder": true
-    },
-    "matrix_pins": {
-        "direct": [
-            ["D7", "B6", "B7"]
-        ]
+    "build": {
+        "lto": true
     },
     "encoder": {
         "rotary": [
             {"pin_a": "B5", "pin_b": "B4"}
         ]
     },
+    "features": {
+        "bluetooth": true,
+        "bootmagic": true,
+        "encoder": true,
+        "extrakey": false,
+        "grave_esc": false,
+        "magic": false,
+        "mousekey": true,
+        "nkro": false,
+        "pointing_device": true,
+        "space_cadet": false
+    },
+    "matrix_pins": {
+        "direct": [
+            ["D7", "B6", "B7"]
+        ]
+    },
+    "processor": "atmega16u2",
+    "url": "dimitrix.llc",
+    "usb": {
+        "device_version": "1.0.0",
+        "pid": "0x2041",
+        "vid": "0x03EB"
+    },
     "layouts": {
         "LAYOUT": {
             "layout": [
                 {"label": "L", "matrix": [0, 0], "x": 0, "y": 0},
                 {"label": "M", "matrix": [0, 1], "x": 1, "y": 0},
-                 {"label": "R", "matrix": [0, 2], "x": 2, "y": 0}
+                {"label": "R", "matrix": [0, 2], "x": 2, "y": 0}
             ]
         }
     }

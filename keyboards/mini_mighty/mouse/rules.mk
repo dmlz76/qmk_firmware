@@ -1,17 +1,6 @@
-F_CPU = 16000000
-
 POINTING_DEVICE_DRIVER = paw3220
 
-BLUETOOTH_ENABLE = yes
-BLUETOOTH_DRIVER = custom
 SPI_DRIVER_REQUIRED = yes
-SRC += bluetooth_custom.cpp
+SRC += bluetooth_custom.c
+SRC += ble_send_buf.cpp
 VPATH += keyboards/mini_mighty/common
-
-CONSOLE_ENABLE = no
-
-SPACE_CADET_ENABLE = no
-GRAVE_ESC_ENABLE = no 
-MAGIC_ENABLE = no
-
-EXTRAFLAGS += -flto
