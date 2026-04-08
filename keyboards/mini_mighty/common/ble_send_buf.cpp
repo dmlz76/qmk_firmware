@@ -6,6 +6,13 @@ extern "C" {
 #include "debug.h"
 #include "timer.h"
 #include "suspend.h"
+#include <avr/wdt.h>
+#include <avr/sleep.h>
+#include <avr/power.h>
+#include "lufa.h"
+#ifdef POINTING_DEVICE_ENABLE
+#    include "pointing_device.h"
+#endif
 }
 #include "ringbuffer.hpp"
 #include <assert.h>
@@ -21,12 +28,12 @@ extern "C" {
 
 #if ENABLE_POWER_SAVINGS
 #    define POWER_SAVE_TIMEOUT_MS 10000 // 10 sec
-#    define BLE_OFF_TIMEOUT_MS 600000   // 10 min
+#    define BLE_OFF_TIMEOUT_MS 300000   // 5 min
 static uint32_t s_last_processed_blob_time = 0;
 static uint8_t  s_power_save_level         = 0;
 #endif
 
-static RingBuffer<transfer_blob_t, 40> s_send_buf;
+static RingBuffer<transfer_blob_t, 20> s_send_buf;
 
 #define BLE_STATE_UNKNOWN 0
 #define BLE_STATE_OFF -1
@@ -36,7 +43,7 @@ static uint8_t s_resetPin = 0;
 static uint8_t s_sleepPin = 0;
 static int s_ble_state = BLE_STATE_UNKNOWN;
 
-void ble_turn_on() {
+static void ble_turn_on() {
     if (s_ble_state == BLE_STATE_ON) {
         return;
     }
@@ -45,14 +52,18 @@ void ble_turn_on() {
 
     gpio_write_pin_high(s_resetPin);
     gpio_write_pin_low(s_resetPin);
-    wait_ms(10);
+    wait_ms(100);
     gpio_write_pin_high(s_resetPin);
     wait_ms(1000); // Give it a second to initialize
 
     s_ble_state = BLE_STATE_ON;
+
+#ifdef CONSOLE_ENABLE
+    uprintf("ble_turn_on\n");
+#endif
 }
 
-void ble_turn_off() {
+static void ble_turn_off() {
     if (s_ble_state == BLE_STATE_OFF) {
         return;
     }
@@ -60,13 +71,126 @@ void ble_turn_off() {
     gpio_write_pin_low(s_sleepPin);
 
     s_ble_state = BLE_STATE_OFF;
+
+#ifdef CONSOLE_ENABLE
+    uprintf("ble_turn_off\n");
+#endif
+}
+
+#if defined(WDT_vect)
+
+// clang-format off
+#define wdt_intr_enable(value) \
+__asm__ __volatile__ ( \
+    "in __tmp_reg__,__SREG__" "\n\t" \
+    "cli" "\n\t" \
+    "wdr" "\n\t" \
+    "sts %0,%1" "\n\t" \
+    "out __SREG__,__tmp_reg__" "\n\t" \
+    "sts %0,%2" "\n\t" \
+    : /* no outputs */ \
+    : "M" (_SFR_MEM_ADDR(_WD_CONTROL_REG)), \
+    "r" (_BV(_WD_CHANGE_BIT) | _BV(WDE)), \
+    "r" ((uint8_t) ((value & 0x08 ? _WD_PS3_MASK : 0x00) | _BV(WDIE) | (value & 0x07))) \
+    : "r0" \
+)
+// clang-format on
+
+/** \brief Power down MCU with watchdog timer
+ *
+ * wdto: watchdog timer timeout defined in <avr/wdt.h>
+ *          WDTO_15MS
+ *          WDTO_30MS
+ *          WDTO_60MS
+ *          WDTO_120MS
+ *          WDTO_250MS
+ *          WDTO_500MS
+ *          WDTO_1S
+ *          WDTO_2S
+ *          WDTO_4S
+ *          WDTO_8S
+ */
+static uint8_t wdt_timeout = 0;
+
+/** \brief Power down
+ *
+ * FIXME: needs doc
+ */
+static void power_down(uint8_t wdto) {
+    wdt_timeout = wdto;
+
+    // Watchdog Interrupt Mode
+    wdt_intr_enable(wdto);
+
+    // TODO: more power saving
+    // See PicoPower application note
+    // - I/O port input with pullup
+    // - prescale clock
+    // - BOD disable
+    // - Power Reduction Register PRR
+    set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+    sleep_enable();
+    sei();
+    sleep_cpu();
+    sleep_disable();
+
+    // Disable watchdog after sleep
+    wdt_disable();
+}
+
+/* watchdog timeout */
+ISR(WDT_vect) {
+    // compensate timer for sleep
+    switch (wdt_timeout) {
+        case WDTO_15MS:
+            timer_count += 15 + 2; // WDTO_15MS + 2(from observation)
+            break;
+        case WDTO_60MS:
+            timer_count += 60 + 2;
+            break;
+        case WDTO_120MS:
+            timer_count += 120 + 2;
+            break;
+        default:;
+    }
+}
+#endif // #if defined(WDT_vect)
+
+static void mcu_power_down() {
+    if (USB_DeviceState == DEVICE_STATE_Configured) {
+        return;
+    }
+
+#ifdef CONSOLE_ENABLE
+    uprintf("mcu_power_down\n");
+#endif
+
+    suspend_power_down_quantum();
+
+#if defined(POINTING_DEVICE_ENABLE)
+    // run to ensure scanning occurs while suspended
+    pointing_device_task();
+#endif
+
+    // Enter sleep state if possible (ie, the MCU has a watchdog timeout interrupt)
+#if defined(WDT_vect)
+    power_down(WDTO_120MS);
+#endif
+}
+
+static void mcu_wake_up() {
+    suspend_wakeup_init();
+
+#ifdef CONSOLE_ENABLE
+    uprintf("mcu_wake_up\n");
+#endif
 }
 
 static bool process_blob(const transfer_blob_t &blob, uint16_t timeout) {
     bool spi_started = spi_start(SPI_SS_PIN, LSBFIRST, SPI_MODE, SCK_DIVISOR);
     if (!spi_started) {
 #ifdef CONSOLE_ENABLE
-        dprintf("SPI start failed\n");
+        uprintf("SPI start failed\n");
 #endif
         return false;
     }
@@ -83,7 +207,7 @@ static bool process_blob(const transfer_blob_t &blob, uint16_t timeout) {
         }
 
 #ifdef CONSOLE_ENABLE
-        dprintf("SPI transmission failed. Retrying.\n");
+        uprintf("SPI transmission failed. Retrying.\n");
 #endif
         spi_stop();
         wait_us(BackOff);
@@ -107,37 +231,48 @@ void send_buf_init(uint8_t resetPin, uint8_t sleepPin) {
     ble_turn_on();
 }
 
-bool send_buf_send_one(uint16_t timeout) {
-    transfer_blob_t blob;
-    if (!s_send_buf.peek(blob)) {
+void power_savings_on() {
 #if ENABLE_POWER_SAVINGS
+    if (s_power_save_level < 2) {
         // Power saving
         uint32_t time_diff = timer_elapsed32(s_last_processed_blob_time);
         if (time_diff > POWER_SAVE_TIMEOUT_MS) {
-            if (s_power_save_level == 0) {
-                s_power_save_level = 1;
-            }
+            s_power_save_level = 1;
             if (time_diff > BLE_OFF_TIMEOUT_MS) {
-                if (s_power_save_level == 1) {
-                    s_power_save_level = 2;
-                    ble_turn_off();
-                }
+                s_power_save_level = 2;
             }
-            suspend_power_down();
         }
-#endif
-        return false;
     }
 
+    if (s_power_save_level > 0) {
+        if (s_power_save_level > 1) {
+            ble_turn_off();
+        }
+        mcu_power_down();
+    }
+#endif
+}
+
+void power_savings_off() {
 #if ENABLE_POWER_SAVINGS
     if (s_power_save_level > 0) {
-        suspend_wakeup_init();
+        mcu_wake_up();
         if (s_power_save_level == 2) {
             ble_turn_on();
         }
         s_power_save_level = 0;
     }
 #endif
+}
+
+bool send_buf_send_one(uint16_t timeout) {
+    transfer_blob_t blob;
+    if (!s_send_buf.peek(blob)) {
+        power_savings_on();
+        return false;
+    }
+
+    power_savings_off();
 
     if (process_blob(blob, timeout)) {
         // commit that peek

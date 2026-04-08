@@ -1,5 +1,4 @@
-BLUETOOTH_ENABLE = yes
-BLUETOOTH_DRIVER = custom
 SPI_DRIVER_REQUIRED = yes
-SRC += bluetooth_custom.cpp
+SRC += bluetooth_custom.c
+SRC += ble_send_buf.cpp
 VPATH += keyboards/mini_mighty/common
