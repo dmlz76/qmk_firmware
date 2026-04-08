@@ -1,6 +1,6 @@
 {
     "manufacturer": "dimitrix llc",
-    "keyboard_name": "mini.mighty.dogle",
+    "keyboard_name": "mini-mighty-dongle",
     "maintainer": "dmlz76",
     "url": "dimitrix.llc",
     "usb": {
@@ -10,20 +10,28 @@
     },
     "processor": "atmega16u2",
     "bootloader": "atmel-dfu",
+    "build": {
+        "lto": true
+    },
     "features": {
         "bootmagic": false,
         "extrakey": false,
+        "mouse": true,
         "mousekey": false,
         "nkro": false,
         "pointing_device": false,
-        "encoder": false
+        "encoder": false,
+        "grave_esc": false,
+        "magic": false,
+        "space_cadet": false
     },
     "matrix_pins": {
         "direct": [
             [
                 "NO_PIN"
             ]
-        ]
+        ],
+        "custom": true
     },
     "layouts": {
         "LAYOUT": {

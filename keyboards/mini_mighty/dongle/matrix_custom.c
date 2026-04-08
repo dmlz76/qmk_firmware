@@ -5,10 +5,11 @@
 #include "gpio.h"
 #include "wait.h"
 #include "debug.h"
-#ifdef MOUSE_ENABLE
 #include "report.h"
+#ifdef MOUSE_ENABLE
 #include "host.h"
 #endif
+#include <assert.h>
 
 #define USE_SPI_IRQ (defined(__AVR__) || defined(__INTELLISENSE__))
 #if USE_SPI_IRQ
@@ -24,6 +25,7 @@
 #define MOSI_PIN B2
 #define MISO_PIN B3
 
+static report_keyboard_t keyboard_report = {};
 #ifdef MOUSE_ENABLE
 static report_mouse_t mouse_report = {};
 #endif
@@ -129,29 +131,50 @@ void matrix_init(void) {
 }
 
 uint8_t matrix_scan(void) {
-    bool changed = false;
+    bool m_changed = false;
+    bool k_changed = false;
 
     transfer_blob_t blob;
 #if USE_SPI_IRQ
     if (spi_receive(blob.raw, sizeof(blob.raw))) {
-        dprintf("spi irq received: buttons %02X, x %d, y %d, v %d\n", blob.buttons, blob.x, blob.y, blob.v);  
-        changed = true;
+        dprintf("spi irq received: type %d\n", blob.type); 
+        if (blob.type == 'M') {
+            dprintf("spi irq received: buttons %02X, x %d, y %d, v %d\n", blob.m.buttons, blob.m.x, blob.m.y, blob.m.v);  
+            m_changed = true;
+        } else if (blob.type == 'K') {
+            dprintf("spi irq received: mods %02X, keys %d,%d,%d,%d,%d,%d\n", blob.k.mods, blob.k.keys[0], blob.k.keys[1], blob.k.keys[2], blob.k.keys[3], blob.k.keys[4], blob.k.keys[5]);  
+            k_changed = true;
+        }
     }
 #else
     if (spi_selected())
     {
         spi_receive(blob.raw, sizeof(blob.raw));
-        dprintf("spi received: buttons %02X, x %d, y %d, v %d\n", blob.buttons, blob.x, blob.y, blob.v);  
-        changed = true;
+        dprintf("spi irq received: type %d\n", blob.type); 
+        if (blob.type == 'M') {
+            dprintf("spi irq received: buttons %02X, x %d, y %d, v %d\n", blob.m.buttons, blob.m.x, blob.m.y, blob.m.v);  
+            m_changed = true;
+        } else if (blob.type == 'K') {
+            dprintf("spi irq received: mods %02X, keys %d,%d,%d,%d,%d,%d\n", blob.k.mods, blob.k.keys[0], blob.k.keys[1], blob.k.keys[2], blob.k.keys[3], blob.k.keys[4], blob.k.keys[5]);  
+            k_changed = true;
+        }
     }
 #endif
 
+    if (k_changed) {
+        keyboard_report.mods = blob.k.mods;
+        static_assert(KEYBOARD_REPORT_KEYS == 6, "Expected 6 keys in keyboard report");
+        for (uint8_t i = 0; i < KEYBOARD_REPORT_KEYS; i++) {
+            keyboard_report.keys[i] = blob.k.keys[i];
+        }
+    }
+
 #ifdef MOUSE_ENABLE
-    if (changed) {
-        mouse_report.buttons = blob.buttons;
-        mouse_report.x = blob.x;
-        mouse_report.y = blob.y;
-        mouse_report.v = blob.v;
+    if (m_changed) {
+        mouse_report.buttons = blob.m.buttons;
+        mouse_report.x = blob.m.x;
+        mouse_report.y = blob.m.y;
+        mouse_report.v = blob.m.v;
         host_mouse_send(&mouse_report);
     }
 #endif
@@ -159,7 +182,7 @@ uint8_t matrix_scan(void) {
     // This *must* be called for correct keyboard behavior
     matrix_scan_kb();
 
-    return changed;
+    return m_changed | k_changed;
 }
 
 __attribute__((weak)) void matrix_init_kb(void) { matrix_init_user(); }

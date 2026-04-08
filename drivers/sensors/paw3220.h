@@ -48,7 +48,7 @@ typedef struct {
     bool    isMotion;
 } report_paw3220_t;
 
-const pointing_device_driver_t paw3220_pointing_device_driver;
+extern const pointing_device_driver_t paw3220_pointing_device_driver;
 
 void paw3220_init(void);
 report_paw3220_t paw3220_read(void);

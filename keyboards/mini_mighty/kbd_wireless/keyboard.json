@@ -2,12 +2,16 @@
     "manufacturer": "Dimitrix LLC",
     "keyboard_name": "mini-mighty-kbd-wireless",
     "maintainer": "dimitrix-llc",
+    "bluetooth": {
+        "driver": "custom"
+    },
     "bootloader": "atmel-dfu",
     "build": {
         "lto": true
     },
     "diode_direction": "COL2ROW",
     "features": {
+        "bluetooth": true,
         "bootmagic": true,
         "extrakey": true,
         "grave_esc": false,
@@ -23,7 +27,7 @@
     "url": "https://dimitrix.llc",
     "usb": {
         "device_version": "1.0.0",
-        "pid": "0xFFFF",
+        "pid": "0xFFF1",
         "vid": "0x04D8"
     },
     "layouts": {

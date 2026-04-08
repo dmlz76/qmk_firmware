@@ -4,11 +4,12 @@
 #include "bluetooth.h"
 #include "ble_send_buf.h"
 #include "gpio.h"
+#include "debug.h"
 #include <string.h>
 #include <assert.h>
 
 #define RST_PIN D4
-#define SLEEP_PIN D5
+#define SLEEP_PIN B7
 
 #define Timeout 150             /* milliseconds */
 #define ShortTimeout 10         /* milliseconds */
@@ -28,6 +29,18 @@ void bluetooth_send_keyboard(report_keyboard_t *report) {
         dprintf("bluetooth_send_keyboard: mods %d, keys [%d,%d,%d,%d,%d,%d]\n", report->mods, report->keys[0], report->keys[1], report->keys[2], report->keys[3], report->keys[4], report->keys[5]);
     }
 #endif
+
+    transfer_blob_t blob;
+    memset( blob.raw, 0, sizeof(blob.raw) );
+    blob.type = 'K';
+    blob.k.mods = report->mods;
+    for (uint8_t i = 0; i < KEYBOARD_REPORT_KEYS; i++ ) {
+        blob.k.keys[i] = report->keys[i];
+    }
+
+    while (!send_buf_enqueue(&blob)) {
+        send_buf_send_one(Timeout);
+    }
 }
 
 void bluetooth_send_mouse(report_mouse_t *report) {
@@ -36,16 +49,4 @@ void bluetooth_send_mouse(report_mouse_t *report) {
         dprintf("bluetooth_send_mouse: buttons %02X, x %d, y %d, v %d, h %d\n", report->buttons, report->x, report->y, report->v, report->h);
     }
 #endif
-
-    transfer_blob_t blob;
-    memset( blob.raw, 0, sizeof(blob.raw) );
-    blob.type = 'M';
-    blob.m.buttons = report->buttons;
-    blob.m.x = report->x;
-    blob.m.y = report->y;
-    blob.m.v = report->v;
-
-    while (!send_buf_enqueue(&blob)) {
-        send_buf_send_one(Timeout);
-    }
 }

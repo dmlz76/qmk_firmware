@@ -35,8 +35,8 @@
     "url": "dimitrix.llc",
     "usb": {
         "device_version": "1.0.0",
-        "pid": "0x2041",
-        "vid": "0x03EB"
+        "pid": "0xFFF0",
+        "vid": "0x04D8"
     },
     "layouts": {
         "LAYOUT": {
