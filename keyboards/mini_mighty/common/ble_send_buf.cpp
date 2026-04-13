@@ -174,7 +174,7 @@ static void mcu_power_down() {
 
     // Enter sleep state if possible (ie, the MCU has a watchdog timeout interrupt)
 #if defined(WDT_vect)
-    power_down(WDTO_120MS);
+    power_down(WDTO_15MS);
 #endif
 }
 
