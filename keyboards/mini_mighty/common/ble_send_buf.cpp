@@ -1,5 +1,6 @@
 extern "C" {
 #include "ble_send_buf.h"
+#include "matrix_sleep.h"
 #include "spi_master.h"
 #include "gpio.h"
 #include "wait.h"
@@ -8,7 +9,7 @@ extern "C" {
 #include "suspend.h"
 #include <avr/wdt.h>
 #include <avr/sleep.h>
-#include <avr/power.h>
+#include <avr/interrupt.h>
 #include "lufa.h"
 #ifdef POINTING_DEVICE_ENABLE
 #    include "pointing_device.h"
@@ -27,8 +28,12 @@ extern "C" {
 #define ENABLE_POWER_SAVINGS 1
 
 #if ENABLE_POWER_SAVINGS
-#    define POWER_SAVE_TIMEOUT_MS 10000 // 10 sec
-#    define BLE_OFF_TIMEOUT_MS 300000   // 5 min
+#    define POWER_SAVE_TIMEOUT_MS 5000 // 5 sec
+#    define BLE_OFF_TIMEOUT_MS 300000  // 5 min
+#    ifndef MCU_POWER_DOWN_WDTO
+#        define MCU_POWER_DOWN_WDTO WDTO_15MS
+#    endif
+
 static uint32_t s_last_processed_blob_time = 0;
 static uint8_t  s_power_save_level         = 0;
 #endif
@@ -119,8 +124,14 @@ static uint8_t wdt_timeout = 0;
 static void power_down(uint8_t wdto) {
     wdt_timeout = wdto;
 
+    cli();
+
     // Watchdog Interrupt Mode
     wdt_intr_enable(wdto);
+
+    // Drive cols low / pull rows up and arm async-wake IRQs so any keypress
+    // wakes the MCU regardless of WDT period.
+    matrix_sleep_arm();
 
     // TODO: more power saving
     // See PicoPower application note
@@ -129,33 +140,53 @@ static void power_down(uint8_t wdto) {
     // - BOD disable
     // - Power Reduction Register PRR
     set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+    //    cli();
     sleep_enable();
+    //    sleep_bod_disable();
+    // turn off brown-out enable in software
+    //    MCUCR = bit (BODS) | bit (BODSE);
+    //    MCUCR = bit (BODS);
     sei();
     sleep_cpu();
     sleep_disable();
+
+    matrix_sleep_disarm();
 
     // Disable watchdog after sleep
     wdt_disable();
 }
 
-/* watchdog timeout */
-ISR(WDT_vect) {
-    // compensate timer for sleep
-    switch (wdt_timeout) {
+uint16_t timer_count_from_wdt_timeout(uint8_t wdto) {
+    uint16_t tc = 0;
+    switch (wdto) {
         case WDTO_15MS:
-            timer_count += 15 + 2; // WDTO_15MS + 2(from observation)
+            tc = 15 + 2; // WDTO_15MS + 2(from observation)
+            break;
+        case WDTO_30MS:
+            tc = 30 + 2;
             break;
         case WDTO_60MS:
-            timer_count += 60 + 2;
+            tc = 60 + 2;
             break;
         case WDTO_120MS:
-            timer_count += 120 + 2;
+            tc = 120 + 2;
+            break;
+        case WDTO_1S:
+            tc = 1000 + 2;
             break;
         default:;
     }
+    return tc;
+}
+
+/* watchdog timeout */
+ISR(WDT_vect) {
+    // compensate timer for sleep
+    timer_count += timer_count_from_wdt_timeout(wdt_timeout);
 }
 #endif // #if defined(WDT_vect)
 
+#if ENABLE_POWER_SAVINGS
 static void mcu_power_down() {
     if (USB_DeviceState == DEVICE_STATE_Configured) {
         return;
@@ -174,17 +205,32 @@ static void mcu_power_down() {
 
     // Enter sleep state if possible (ie, the MCU has a watchdog timeout interrupt)
 #if defined(WDT_vect)
-    power_down(WDTO_15MS);
-#endif
-}
+    power_down(MCU_POWER_DOWN_WDTO);
+#    endif
 
+    if (matrix_wake_flag) {
+        timer_count += timer_count_from_wdt_timeout(MCU_POWER_DOWN_WDTO) >> 1; // assume on average half of WDT
+        // prevent the MCU from sleeping right away
+        s_last_processed_blob_time = timer_read32();
+    }
+}
+#endif
+
+#if ENABLE_POWER_SAVINGS
 static void mcu_wake_up() {
     suspend_wakeup_init();
 
-#ifdef CONSOLE_ENABLE
-    uprintf("mcu_wake_up\n");
-#endif
+    if (matrix_wake_flag) {
+#    ifdef CONSOLE_ENABLE
+        uprintf("mcu_wake_up matrix\n");
+#    endif
+    } else {
+#    ifdef CONSOLE_ENABLE
+        uprintf("mcu_wake_up watchdog\n");
+#    endif
+    }
 }
+#endif
 
 static bool process_blob(const transfer_blob_t &blob, uint16_t timeout) {
     bool spi_started = spi_start(SPI_SS_PIN, LSBFIRST, SPI_MODE, SCK_DIVISOR);
@@ -219,12 +265,36 @@ static bool process_blob(const transfer_blob_t &blob, uint16_t timeout) {
     return success;
 }
 
+void setup_power_savings() {
+    // Disable analog comparator (not used, saves ~70 µA).
+    ACSR &= ~_BV(ACIE);
+    ACSR |= _BV(ACD);
+
+    // Power Reduction Register — clock-gate unused peripherals.
+    // Timer0 (system tick) and SPI (BLE) must stay enabled.
+#if defined(PRR0)
+    PRR0 |= _BV(PRUSART1) | _BV(PRTIM1);
+#elif defined(PRR)
+    PRR |= _BV(PRUSART1) | _BV(PRTIM1);
+#endif
+
+#ifdef UNCONNECTED_PINS
+    // Pull up unused pins to prevent floating inputs drawing current.
+    const pin_t unconnected_pins[] = UNCONNECTED_PINS;
+    for (uint8_t i = 0; i < (sizeof(unconnected_pins) / sizeof(pin_t)); i++) {
+        gpio_set_pin_input_high(unconnected_pins[i]);
+    }
+#endif
+}
+
 void send_buf_init(uint8_t resetPin, uint8_t sleepPin) {
     s_resetPin = resetPin;
     s_sleepPin = sleepPin;
 
     gpio_set_pin_output(s_resetPin);
     gpio_set_pin_output(s_sleepPin);
+
+    setup_power_savings();
 
     spi_init();
 
