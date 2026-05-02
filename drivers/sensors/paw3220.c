@@ -8,6 +8,7 @@
 #include "pointing_device_internal.h"
 
 #define USE_LED_CURRENT_SOURCE_MODE 1
+#define POWER_ON_RESET 0
 
 #define REG_PID1 0x00
 #define REG_PID2 0x01
@@ -112,12 +113,14 @@ void paw3220_init(void) {
 
     // Hold CS low for 1ms during boot
     paw3220_select();
-    wait_us(1);
+    wait_ms(1);
     paw3220_deselect();
     wait_us(1);
 
+#if POWER_ON_RESET
     paw3220_write_reg(REG_CONFIG, 0x80); // full reset
-    wait_us(5);
+    wait_us(100);
+#endif
 
     paw3220_write_reg(REG_CONFIG, 0x20); // enable Sleep3 mode
 
