@@ -42,8 +42,10 @@ __attribute__((weak)) void suspend_wakeup_init_kb(void) {
  */
 bool suspend_wakeup_condition(void) {
     matrix_power_up();
-    matrix_scan();
+    bool matrix_changed = matrix_scan();
     matrix_power_down();
+    if (matrix_changed) 
+        return true;
     for (uint8_t r = 0; r < MATRIX_ROWS; r++) {
         if (matrix_get_row(r)) return true;
     }
