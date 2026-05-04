@@ -45,10 +45,12 @@ __attribute__((weak)) void suspend_wakeup_init_kb(void) {
  */
 bool suspend_wakeup_condition(void) {
     matrix_power_up();
-    matrix_scan();
+    bool matrix_changed = matrix_scan();
     matrix_power_down();
 
-    bool wakeup = false;
+    // matrix_scan() reporting a change also counts: a matrix_custom (e.g. the
+    // dongle) can have input with no matrix rows set.
+    bool wakeup = matrix_changed;
     for (uint8_t row = 0; row < MATRIX_ROWS; row++) {
         wakeup_matrix[row] = matrix_get_row(row);
         wakeup |= wakeup_matrix[row] != 0;
