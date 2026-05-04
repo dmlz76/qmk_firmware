@@ -30,6 +30,7 @@ static report_keyboard_t keyboard_report = {};
 static report_mouse_t mouse_report = {};
 #endif
 
+#define MANUAL_POWER_ON_RESET 0
 #define SPI_READ_ONLY 1
 
 #if USE_SPI_IRQ
@@ -117,14 +118,17 @@ void matrix_print(void) {
 void matrix_init(void) {
     spi_init_slave();
 
-    // Perform a hardware reset
     gpio_set_pin_output(RST_PIN);
     gpio_write_pin_high(RST_PIN);
+
+#if MANUAL_POWER_ON_RESET
+    // Perform a hardware reset
     gpio_write_pin_low(RST_PIN);
-    wait_ms(10);
+    wait_ms(100);
     gpio_write_pin_high(RST_PIN);
 
     wait_ms(1000); // Give it a second to initialize
+#endif
 
     // This *must* be called for correct keyboard behavior
     matrix_init_kb();
@@ -167,6 +171,7 @@ uint8_t matrix_scan(void) {
         for (uint8_t i = 0; i < KEYBOARD_REPORT_KEYS; i++) {
             keyboard_report.keys[i] = blob.k.keys[i];
         }
+        host_keyboard_send(&keyboard_report);
     }
 
 #ifdef MOUSE_ENABLE
