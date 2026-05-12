@@ -34,8 +34,11 @@ extern "C" {
 #        define MCU_POWER_DOWN_WDTO WDTO_15MS
 #    endif
 
+#    define POWER_SAVE_STATE_MCU 1
+#    define POWER_SAVE_STATE_BLE 2
+
 static uint32_t s_last_processed_blob_time = 0;
-static uint8_t  s_power_save_level         = 0;
+static uint8_t  s_power_save_state         = 0;
 #endif
 
 static RingBuffer<transfer_blob_t, 20> s_send_buf;
@@ -209,8 +212,8 @@ static void mcu_power_down() {
 #    endif
 
     if (matrix_wake_flag) {
-        timer_count += timer_count_from_wdt_timeout(MCU_POWER_DOWN_WDTO) >> 1; // assume on average half of WDT
-        // prevent the MCU from sleeping right away
+        //  prevent the MCU from sleeping right away
+        s_power_save_state &= ~POWER_SAVE_STATE_MCU;
         s_last_processed_blob_time = timer_read32();
     }
 }
@@ -303,21 +306,18 @@ void send_buf_init(uint8_t resetPin, uint8_t sleepPin) {
 
 void power_savings_on() {
 #if ENABLE_POWER_SAVINGS
-    if (s_power_save_level < 2) {
-        // Power saving
-        uint32_t time_diff = timer_elapsed32(s_last_processed_blob_time);
-        if (time_diff > POWER_SAVE_TIMEOUT_MS) {
-            s_power_save_level = 1;
-            if (time_diff > BLE_OFF_TIMEOUT_MS) {
-                s_power_save_level = 2;
-            }
-        }
+    uint32_t time_diff = timer_elapsed32(s_last_processed_blob_time);
+    if (time_diff > POWER_SAVE_TIMEOUT_MS) {
+        s_power_save_state |= POWER_SAVE_STATE_MCU;
+    }
+    if (time_diff > BLE_OFF_TIMEOUT_MS) {
+        s_power_save_state |= POWER_SAVE_STATE_BLE;
     }
 
-    if (s_power_save_level > 0) {
-        if (s_power_save_level > 1) {
-            ble_turn_off();
-        }
+    if (s_power_save_state & POWER_SAVE_STATE_BLE) {
+        ble_turn_off();
+    }
+    if (s_power_save_state & POWER_SAVE_STATE_MCU) {
         mcu_power_down();
     }
 #endif
@@ -325,13 +325,13 @@ void power_savings_on() {
 
 void power_savings_off() {
 #if ENABLE_POWER_SAVINGS
-    if (s_power_save_level > 0) {
+    if (s_power_save_state & POWER_SAVE_STATE_MCU) {
         mcu_wake_up();
-        if (s_power_save_level == 2) {
-            ble_turn_on();
-        }
-        s_power_save_level = 0;
     }
+    if (s_power_save_state & POWER_SAVE_STATE_BLE) {
+        ble_turn_on();
+    }
+    s_power_save_state = 0;
 #endif
 }
 

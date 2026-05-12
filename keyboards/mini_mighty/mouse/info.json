@@ -26,11 +26,6 @@
         "pointing_device": true,
         "space_cadet": false
     },
-    "matrix_pins": {
-        "direct": [
-            ["D7", "B6", "B7"]
-        ]
-    },
     "processor": "atmega16u2",
     "url": "dimitrix.llc",
     "usb": {
