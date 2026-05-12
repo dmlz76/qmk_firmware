@@ -20,10 +20,7 @@
 #define USB_SUSPEND_WAKEUP_DELAY 200
 #define NO_SUSPEND_POWER_DOWN 1
 
-// Watchdog period used for MCU power-down sleeps. Async wake (INT7/PCINT0)
+// Watchdog period used for MCU power-down sleeps. Async wake
 // handles button/encoder events regardless of this value, so it only bounds
 // the timer drift correction window in WDT_vect. See ble_send_buf.cpp.
 #define MCU_POWER_DOWN_WDTO WDTO_1S
-
-// TODO: Switch to C2 to D7 for next PCB revision
-#define UNCONNECTED_PINS { D0, D1, D2, D3, D6, C2 }
