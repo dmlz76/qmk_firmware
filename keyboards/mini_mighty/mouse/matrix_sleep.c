@@ -42,9 +42,11 @@ ISR(PCINT1_vect) {
 void matrix_sleep_arm(void) {
     matrix_wake_flag = false;
  
+#if MMM_VER >= 12
     // turn off the internal pull-ups on the encoder pins (leaving just the external pull-ups)
     gpio_set_pin_input(B4);
     gpio_set_pin_input(B5);
+#endif
 
 #if USE_INT7
     // INT7 low-level trigger (ISC71:ISC70 = 00).
@@ -87,7 +89,9 @@ void matrix_sleep_disarm(void) {
     PCICR  &= ~_BV(PCIE1);
 #endif
 
+#if MMM_VER >= 12
     // turn back on the internal pull-ups on the encoder pins
     gpio_set_pin_input_high(B4);
     gpio_set_pin_input_high(B5);
+#endif
 }
