@@ -221,7 +221,13 @@ static void mcu_power_down() {
 
 #if ENABLE_POWER_SAVINGS
 static void mcu_wake_up() {
-    suspend_wakeup_init();
+    // NOTE: deliberately NOT suspend_wakeup_init() — that calls clear_keyboard(),
+    // which sends an all-released HID report. This power-nap is a transparent CPU
+    // sleep (the BLE link is unaffected), so a key held across the nap must stay
+    // held; clearing it produced a spurious release on the first press after idle.
+    // We still run the _quantum half to restore LED/RGB that suspend_power_down_quantum()
+    // turned off, keeping the down/up symmetric without touching keyboard state.
+    suspend_wakeup_init_quantum();
 
     if (matrix_wake_flag) {
 #    ifdef CONSOLE_ENABLE
