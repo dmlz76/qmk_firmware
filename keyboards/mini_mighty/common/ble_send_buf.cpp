@@ -43,6 +43,9 @@ static uint8_t  s_power_save_state         = 0;
 
 static RingBuffer<transfer_blob_t, 20> s_send_buf;
 
+#define BLE_RESET_HOLD_MS 100
+#define BLE_RESET_WAIT_MS 500
+
 #define BLE_STATE_UNKNOWN 0
 #define BLE_STATE_OFF -1
 #define BLE_STATE_ON 1
@@ -60,9 +63,9 @@ static void ble_turn_on() {
 
     gpio_write_pin_high(s_resetPin);
     gpio_write_pin_low(s_resetPin);
-    wait_ms(100);
+    wait_ms(BLE_RESET_HOLD_MS); // Hold reset to reboot the chip
     gpio_write_pin_high(s_resetPin);
-    wait_ms(1000); // Give it a second to initialize
+    wait_ms(BLE_RESET_WAIT_MS); // Give it some time to initialize
 
     s_ble_state = BLE_STATE_ON;
 
