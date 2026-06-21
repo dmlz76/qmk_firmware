@@ -67,3 +67,15 @@ bool process_detected_host_os_user(os_variant_t os) {
     }
     return true;
 }
+
+void keyboard_post_init_user(void) {
+#ifdef CONSOLE_ENABLE
+    debug_enable = true;
+    debug_keyboard = true;
+    debug_mouse = false;
+#else
+    debug_enable = false;
+    debug_keyboard = false;
+    debug_mouse = false;
+#endif
+}
