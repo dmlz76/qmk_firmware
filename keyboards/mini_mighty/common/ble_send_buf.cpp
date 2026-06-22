@@ -46,32 +46,65 @@ static RingBuffer<transfer_blob_t, 20> s_send_buf;
 #define BLE_RESET_HOLD_MS 100
 #define BLE_RESET_WAIT_MS 500
 
+// BLE reboot is driven as a non-blocking state machine so the keyboard task
+// keeps scanning the matrix (and s_send_buf keeps buffering keystrokes) across
+// the nRF's ~600 ms reset/init window. Blocking here used to drop any key
+// pressed during the wake-from-suspend BLE reboot — see WAKE_KEYLOSS_HANDOFF.md.
 #define BLE_STATE_UNKNOWN 0
-#define BLE_STATE_OFF -1
-#define BLE_STATE_ON 1
+#define BLE_STATE_OFF 1
+#define BLE_STATE_RESETTING 2    // reset asserted low, waiting out the hold pulse
+#define BLE_STATE_INITIALIZING 3 // reset released, waiting for the nRF to boot
+#define BLE_STATE_ON 4
 
-static uint8_t s_resetPin = 0;
-static uint8_t s_sleepPin = 0;
-static int s_ble_state = BLE_STATE_UNKNOWN;
+static uint8_t  s_resetPin       = 0;
+static uint8_t  s_sleepPin       = 0;
+static int      s_ble_state      = BLE_STATE_UNKNOWN;
+static uint16_t s_ble_phase_time = 0; // start of the current reset/init phase
 
-static void ble_turn_on() {
-    if (s_ble_state == BLE_STATE_ON) {
+// Kick off (or no-op if already in progress / on) a BLE reboot. Non-blocking:
+// it only asserts reset and records the phase start; ble_is_ready() advances
+// and completes the sequence on subsequent calls.
+static void ble_start_turn_on() {
+    if (s_ble_state == BLE_STATE_ON || s_ble_state == BLE_STATE_RESETTING || s_ble_state == BLE_STATE_INITIALIZING) {
         return;
     }
 
     gpio_write_pin_high(s_sleepPin);
 
     gpio_write_pin_high(s_resetPin);
-    gpio_write_pin_low(s_resetPin);
-    wait_ms(BLE_RESET_HOLD_MS); // Hold reset to reboot the chip
-    gpio_write_pin_high(s_resetPin);
-    wait_ms(BLE_RESET_WAIT_MS); // Give it some time to initialize
+    gpio_write_pin_low(s_resetPin); // assert reset; held until the phase deadline
+    s_ble_phase_time = timer_read();
+    s_ble_state      = BLE_STATE_RESETTING;
+}
 
-    s_ble_state = BLE_STATE_ON;
+// Advance the non-blocking reboot and report whether the nRF is ready for SPI.
+// Safe to call every tick; returns true immediately once BLE is on.
+static bool ble_is_ready() {
+    switch (s_ble_state) {
+        case BLE_STATE_RESETTING:
+            if (timer_elapsed(s_ble_phase_time) >= BLE_RESET_HOLD_MS) {
+                gpio_write_pin_high(s_resetPin); // release reset to let the chip boot
+                s_ble_phase_time = timer_read();
+                s_ble_state      = BLE_STATE_INITIALIZING;
+            }
+            return false;
 
+        case BLE_STATE_INITIALIZING:
+            if (timer_elapsed(s_ble_phase_time) >= BLE_RESET_WAIT_MS) {
+                s_ble_state = BLE_STATE_ON;
 #ifdef CONSOLE_ENABLE
-    uprintf("ble_turn_on\n");
+                uprintf("ble_turn_on\n");
 #endif
+                return true;
+            }
+            return false;
+
+        case BLE_STATE_ON:
+            return true;
+
+        default:
+            return false;
+    }
 }
 
 static void ble_turn_off() {
@@ -310,7 +343,12 @@ void send_buf_init(uint8_t resetPin, uint8_t sleepPin) {
 
     spi_init();
 
-    ble_turn_on();
+    // At init there is nothing else to do, so spin the non-blocking reboot
+    // state machine to completion before returning.
+    ble_start_turn_on();
+    while (!ble_is_ready()) {
+        // busy-wait; ble_is_ready() advances the phases off the system timer
+    }
 }
 
 void power_savings_on() {
@@ -338,7 +376,10 @@ void power_savings_off() {
         mcu_wake_up();
     }
     if (s_power_save_state & POWER_SAVE_STATE_BLE) {
-        ble_turn_on();
+        // Non-blocking: kick off the reboot and let the keyboard task keep
+        // scanning while the nRF comes up. send_buf_send_one() holds off SPI
+        // sends (via ble_is_ready()) until the init window has elapsed.
+        ble_start_turn_on();
     }
     s_power_save_state = 0;
 #endif
@@ -352,6 +393,13 @@ bool send_buf_send_one(uint16_t timeout) {
     }
 
     power_savings_off();
+
+    if (!ble_is_ready()) {
+        // BLE is still rebooting. Leave the blob (and anything the matrix
+        // enqueues meanwhile) in s_send_buf and return without blocking so the
+        // main loop keeps scanning. We drain in order once the nRF is ready.
+        return false;
+    }
 
     if (process_blob(blob, timeout)) {
         // commit that peek
