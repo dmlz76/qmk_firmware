@@ -26,9 +26,11 @@ void keyboard_post_init_user(void) {
     // Customise these values to desired behaviour
 #ifdef CONSOLE_ENABLE
     debug_enable = true;
+    debug_keyboard = true;    
     debug_mouse = true;
 #else
     debug_enable = false;
+    debug_keyboard = false;    
     debug_mouse = false;
 #endif
 }
