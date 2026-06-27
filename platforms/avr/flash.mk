@@ -49,7 +49,7 @@ define EXEC_DFU
 		fi; \
 		$(DFU_PROGRAMMER) $(MCU) flash $(BUILD_DIR)/$(TARGET).hex;\
 	fi; \
-	$(DFU_PROGRAMMER) $(MCU) reset
+	$(DFU_PROGRAMMER) $(MCU) reset || true # fork-local: dfu-programmer 1.x exits nonzero on reset (board detaches) though flash+validate above succeeded; avoids a false "Error 254"
 endef
 
 dfu: $(BUILD_DIR)/$(TARGET).hex cpfirmware check-size
