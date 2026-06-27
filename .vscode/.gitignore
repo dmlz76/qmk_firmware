@@ -1,0 +1,5 @@
+# Fork-local override. Upstream QMK's root .gitignore excludes .vscode/tasks.json;
+# we keep our mini_mighty build task tracked on this fork without editing that
+# shared file. Patterns here are relative to .vscode/ and take precedence over
+# the root .gitignore (a negation works because .vscode/ itself isn't excluded).
+!tasks.json
