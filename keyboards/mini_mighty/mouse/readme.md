@@ -8,13 +8,20 @@
 * Hardware Supported: *The PCBs, controllers supported*
 * Hardware Availability: dimitrix.llc
 
-Make example for this mouse (after setting up your build environment):
+Build the PCB revision you have (after setting up your build environment):
 
-    make mini_mighty/mouse:default
+    qmk compile -kb mini_mighty/mouse/rev11 -km default
+    qmk compile -kb mini_mighty/mouse/rev12 -km default
 
-Flashing example for this mouse:
+Flash (enter the bootloader first — see below):
 
-    make mini_mighty/mouse:default:flash
+    qmk flash -kb mini_mighty/mouse/rev12 -km default
+
+> Pick a revision — the bare `mini_mighty/mouse` target is a parent and is not
+> buildable (it has no matrix). Build with the `qmk` CLI, not a bare `make`: `qmk`
+> uses QMK's managed toolchain (avr-gcc 15.x); a bare `make` uses whatever `avr-gcc`
+> is first on your `PATH`, and an older one (e.g. Homebrew avr-gcc 8.x) emits larger
+> code that overflows this near-full atmega16u2. Flashing needs `dfu-programmer`.
 
 See the [build environment setup](https://docs.qmk.fm/#/getting_started_build_tools) and the [make instructions](https://docs.qmk.fm/#/getting_started_make_guide) for more information. Brand new to QMK? Start with our [Complete Newbs Guide](https://docs.qmk.fm/#/newbs).
 

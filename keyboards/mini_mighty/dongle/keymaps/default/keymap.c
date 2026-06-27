@@ -15,6 +15,7 @@
  */
 
 #include QMK_KEYBOARD_H
+#include "reset_reason.h"
 
 // clang-format off
 const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
@@ -26,11 +27,17 @@ void keyboard_post_init_user(void) {
     // Customise these values to desired behaviour
 #ifdef CONSOLE_ENABLE
     debug_enable = true;
-    debug_keyboard = true;    
+    debug_keyboard = true;
     debug_mouse = true;
 #else
     debug_enable = false;
-    debug_keyboard = false;    
+    debug_keyboard = false;
     debug_mouse = false;
 #endif
+
+}
+
+void housekeeping_task_user(void) {
+    // Re-emit the reset reason for a few seconds so qmk console catches it.
+    reset_reason_task();
 }

@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include QMK_KEYBOARD_H
+#include "reset_reason.h"
+#include "connection.h"
 
 enum LAYER {
   _PC,
@@ -78,4 +80,21 @@ void keyboard_post_init_user(void) {
     debug_keyboard = false;
     debug_mouse = false;
 #endif
+
+#ifdef FORCE_OUTPUT_BLUETOOTH
+    // Debug aid: pin HID report routing to the wireless (nRF/SPI) path even
+    // while USB is plugged in, so the report traffic exercises the BLE link
+    // while the USB console stays available for logs. The connection
+    // framework would otherwise auto-select USB whenever it's enumerated.
+    // noeeprom = not persisted; clears on reflash without this define.
+    // Note: while forced, the host's USB keyboard HID interface stays
+    // enumerated but receives no reports (typing won't reach the host over
+    // USB) — that's expected; the console endpoint is unaffected.
+    connection_set_host_noeeprom(CONNECTION_HOST_BLUETOOTH);
+#endif
+}
+
+void housekeeping_task_user(void) {
+    // Re-emit the reset reason for a few seconds so qmk console catches it.
+    reset_reason_task();
 }

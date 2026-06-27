@@ -21,10 +21,11 @@
         "extrakey": false,
         "grave_esc": false,
         "magic": false,
-        "mousekey": true,
+        "mousekey": false,
         "nkro": false,
         "pointing_device": true,
-        "space_cadet": false
+        "space_cadet": false,
+        "console": false
     },
     "processor": "atmega16u2",
     "url": "dimitrix.llc",

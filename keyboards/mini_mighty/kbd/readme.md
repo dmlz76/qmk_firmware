@@ -11,13 +11,18 @@ Measuring just 256x115x17 mm (10×4.5×0.675 inches), mini·mighty·kbd is one o
 * Hardware Supported: mini·mighty·kbd v2.2 or later PCB
 * Hardware Availability: https://dimitrix.llc/keyboards
 
-Make example for this keyboard (after setting up your build environment):
+Build (after setting up your build environment):
 
-    make mini_mighty/kbd:default
+    qmk compile -kb mini_mighty/kbd -km default
 
-Flashing example for this keyboard:
+Flash (enter the bootloader first — see below):
 
-    make mini_mighty/kbd:default:flash
+    qmk flash -kb mini_mighty/kbd -km default
+
+> Build with the `qmk` CLI, not a bare `make`. `qmk` uses QMK's managed toolchain
+> (avr-gcc 15.x); a bare `make` uses whatever `avr-gcc` is first on your `PATH`, and
+> an older one (e.g. Homebrew avr-gcc 8.x) emits larger code that can overflow flash.
+> Flashing these atmega boards needs `dfu-programmer` installed.
 
 See the [build environment setup](https://docs.qmk.fm/#/getting_started_build_tools) and the [make instructions](https://docs.qmk.fm/#/getting_started_make_guide) for more information. Brand new to QMK? Start with our [Complete Newbs Guide](https://docs.qmk.fm/#/newbs).
 
