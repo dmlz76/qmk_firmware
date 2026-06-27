@@ -17,7 +17,8 @@
         "grave_esc": false,
         "magic": false,
         "os_detection": true,
-        "space_cadet": false
+        "space_cadet": false,
+        "console": false
     },
     "matrix_pins": {
         "cols": ["F4", "F5", "F1", "F0", "E6", "D5", "D6", "D7", "B4", "B5", "D3", "D2", "D1", "D0"],

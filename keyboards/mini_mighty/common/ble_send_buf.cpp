@@ -281,7 +281,7 @@ static bool process_blob(const transfer_blob_t &blob, uint16_t timeout) {
     bool spi_started = spi_start(SPI_SS_PIN, LSBFIRST, SPI_MODE, SCK_DIVISOR);
     if (!spi_started) {
 #ifdef CONSOLE_ENABLE
-        uprintf("SPI start failed\n");
+        uprintf("SPI start fail\n");
 #endif
         return false;
     }
@@ -298,7 +298,7 @@ static bool process_blob(const transfer_blob_t &blob, uint16_t timeout) {
         }
 
 #ifdef CONSOLE_ENABLE
-        uprintf("SPI transmission failed. Retrying.\n");
+        uprintf("SPI tx retry\n");
 #endif
         spi_stop();
         wait_us(BackOff);
@@ -339,7 +339,7 @@ void send_buf_init(uint8_t resetPin, uint8_t sleepPin) {
     gpio_set_pin_output(s_resetPin);
     gpio_set_pin_output(s_sleepPin);
 
-    setup_power_savings();
+    // setup_power_savings();
 
     spi_init();
 
@@ -417,4 +417,16 @@ bool send_buf_send_one(uint16_t timeout) {
 bool send_buf_enqueue(const transfer_blob_t *blob) {
     assert(blob);
     return s_send_buf.enqueue(*blob);
+}
+
+bool send_buf_force_enqueue(const transfer_blob_t *blob) {
+    assert(blob);
+    if (s_send_buf.enqueue(*blob)) {
+        return false;
+    }
+    // Ring full: drop the oldest entry, then enqueue (now guaranteed to fit).
+    transfer_blob_t discard;
+    s_send_buf.get(discard);
+    s_send_buf.enqueue(*blob);
+    return true;
 }

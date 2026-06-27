@@ -19,6 +19,11 @@ Flash (enter the bootloader first — see below):
 
     qmk flash -kb mini_mighty/kbd -km default
 
+> Build with the `qmk` CLI, not a bare `make`. `qmk` uses QMK's managed toolchain
+> (avr-gcc 15.x); a bare `make` uses whatever `avr-gcc` is first on your `PATH`, and
+> an older one (e.g. Homebrew avr-gcc 8.x) emits larger code that can overflow flash.
+> Flashing these atmega boards needs `dfu-programmer` installed.
+
 See the [build environment setup](https://docs.qmk.fm/#/getting_started_build_tools) and the [make instructions](https://docs.qmk.fm/#/getting_started_make_guide) for more information. Brand new to QMK? Start with our [Complete Newbs Guide](https://docs.qmk.fm/#/newbs).
 
 ## Bootloader
