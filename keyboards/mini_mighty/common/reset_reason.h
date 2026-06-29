@@ -10,7 +10,8 @@
 extern "C" {
 #endif
 
-// Reset flags snapshotted from MCUSR in .init3, before the C runtime clears it.
+// Reset flags snapshotted from MCUSR early at boot (.init5 — after QMK's .init3
+// DFU watchdog-reset check, so it doesn't clobber WDRF), before anything clears it.
 extern uint8_t g_reset_mcusr;
 
 // Call every loop from housekeeping_task_user(). Prints the captured MCUSR a
