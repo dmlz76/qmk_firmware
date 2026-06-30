@@ -3,6 +3,7 @@
 
 #include QMK_KEYBOARD_H
 #include "reset_reason.h"
+#include "console_buffer.h"
 #include "connection.h"
 
 enum LAYER {
@@ -71,6 +72,10 @@ bool process_detected_host_os_user(os_variant_t os) {
 }
 
 void keyboard_post_init_user(void) {
+    // Route console output through a RAM ring buffer that survives USB
+    // re-enumeration / a detached listener; drained in housekeeping_task_user().
+    console_buffer_init();
+
 #ifdef CONSOLE_ENABLE
     debug_enable = true;
     debug_keyboard = true;
@@ -95,6 +100,8 @@ void keyboard_post_init_user(void) {
 }
 
 void housekeeping_task_user(void) {
-    // Re-emit the reset reason for a few seconds so qmk console catches it.
+    // Reset reason is printed once (buffered); the console buffer holds it until
+    // a listener attaches, then drains it here along with all other output.
     reset_reason_task();
+    console_buffer_flush_task();
 }
