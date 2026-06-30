@@ -33,7 +33,7 @@ void bluetooth_task(void) {
 void bluetooth_send_keyboard(report_keyboard_t *report) {
     static_assert(KEYBOARD_REPORT_KEYS == 6, "Expected 6 keys in keyboard report");
 #ifdef CONSOLE_ENABLE
-    if (debug_mouse) {
+    if (debug_keyboard) {
         dprintf("bluetooth_send_keyboard: mods %d, keys [%d,%d,%d,%d,%d,%d]\n", report->mods, report->keys[0], report->keys[1], report->keys[2], report->keys[3], report->keys[4], report->keys[5]);
     }
 #endif

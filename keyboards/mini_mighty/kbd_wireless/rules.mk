@@ -3,6 +3,7 @@ SRC += bluetooth_custom.c
 SRC += ble_send_buf.cpp
 SRC += matrix_sleep.c
 SRC += reset_reason.c
+SRC += console_buffer.c
 VPATH += keyboards/mini_mighty/common
 
 LUFA_OPTS_USB_REG_DISABLED = yes

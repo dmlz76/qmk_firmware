@@ -36,16 +36,15 @@ void grab_reset_mcusr(void) {
 
 void reset_reason_task(void) {
 #ifdef CONSOLE_ENABLE
-    // Re-emit a handful of times after boot: post_init runs before the host
-    // attaches the console reader, so a single print is lost. Raw MCUSR byte +
-    // bit legend (one format string keeps this tiny on the near-full 16u2).
-    // Bits: POR=0x01 EXT=0x02 BOD=0x04 WDT=0x08; 0x00 => software jmp 0 / crash.
-    static uint8_t  count = 0;
-    static uint16_t last  = 0;
-    if (count >= 15) return;                            // ~15 prints then quiet
-    if (count != 0 && timer_elapsed(last) < 1000) return; // ~1s apart
-    last = timer_read();
-    count++;
+    // Print once. The RAM console buffer (console_buffer.c) holds it until a
+    // listener attaches and then drains it, so the old windowed/continuous
+    // re-emit is no longer needed. A fresh line appearing therefore means a real
+    // (re)boot occurred — handy for telling a reboot from a non-reboot event.
+    // Raw MCUSR byte + bit legend. Bits: POR=0x01 EXT=0x02 BOD=0x04 WDT=0x08;
+    // 0x00 => software jmp 0 / crash.
+    static bool printed = false;
+    if (printed) return;
+    printed = true;
     uprintf("MCUSR=0x%02X (POR1 EXT2 BOD4 WDT8)\n", g_reset_mcusr);
 #endif
 }
