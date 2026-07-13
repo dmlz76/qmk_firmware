@@ -9,8 +9,6 @@
 #include <string.h>
 #include <assert.h>
 
-#define RST_PIN D4
-#define SLEEP_PIN B7
 
 #define Timeout 150             /* milliseconds */
 #define ShortTimeout 10         /* milliseconds */

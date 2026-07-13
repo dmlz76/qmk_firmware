@@ -1,0 +1,7 @@
+{
+    "diode_direction": "COL2ROW",
+    "matrix_pins": {
+        "cols": ["F4", "F5", "F1", "F0", "E6", "D5", "D6", "D7", "B4", "B5", "D3", "D2", "D1", "D0"],
+        "rows": ["F6", "F7", "E2", "C7", "C6", "B6"]
+    }
+}
