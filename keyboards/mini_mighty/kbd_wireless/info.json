@@ -9,7 +9,6 @@
     "build": {
         "lto": true
     },
-    "diode_direction": "COL2ROW",
     "features": {
         "bluetooth": true,
         "bootmagic": true,
@@ -18,11 +17,7 @@
         "magic": false,
         "os_detection": true,
         "space_cadet": false,
-        "console": false
-    },
-    "matrix_pins": {
-        "cols": ["F4", "F5", "F1", "F0", "E6", "D5", "D6", "D7", "B4", "B5", "D3", "D2", "D1", "D0"],
-        "rows": ["F6", "F7", "E2", "C7", "C6", "B6"]
+        "console": true
     },
     "processor": "atmega32u4",
     "url": "https://dimitrix.llc",
