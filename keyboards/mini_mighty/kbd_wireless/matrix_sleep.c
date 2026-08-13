@@ -2,6 +2,7 @@
 #include "gpio.h"
 #include "quantum.h"
 #include "timer.h"
+#include "wait.h"
 #include <avr/interrupt.h>
 #include <avr/sleep.h>
 #include <avr/io.h>
@@ -28,6 +29,16 @@ volatile bool matrix_wake_flag = false;
 //
 // INT0/INT1 are level triggered, so their ISRs self-disable to stop the interrupt
 // re-firing while the key is held low; arm() re-enables them before the next sleep.
+//
+// PCINT fires on an EDGE only, so a row that is ALREADY low when arm() runs cannot
+// produce a wake at all. arm() therefore samples the rows after the IRQs are live
+// and reports "don't sleep" via matrix_wake_flag; see MATRIX_SETTLE_US below.
+
+// Settling time after switching the columns from hi-Z/pull-up to driven-low before
+// the row levels can be trusted. Mirrors quantum/matrix.c's MATRIX_IO_DELAY.
+#ifndef MATRIX_SETTLE_US
+#    define MATRIX_SETTLE_US 30
+#endif
 
 #define TIMER_INCR_ON_INTR 1
 
@@ -74,6 +85,26 @@ void matrix_sleep_arm(void) {
     PCMSK0 = _BV(PCINT4) | _BV(PCINT5) | _BV(PCINT6) | _BV(PCINT7);
     PCIFR |= _BV(PCIF0);                // clear any stale flag
     PCICR |= _BV(PCIE0);
+
+    // Check-after-arm. PCINT is edge triggered, so a row that is already low by the
+    // time we get here -- a key held across the sleep decision, or one pressed in
+    // the window between the last matrix scan and the PCICR write above -- will
+    // never generate an edge and would stay invisible until the watchdog expires.
+    // At MCU_POWER_DOWN_WDTO = WDTO_8S that means the key is long released before
+    // the next scan, and sym_defer_g folds the press away without ever reporting
+    // it (raw returns to match cooked): the keystroke is silently dropped.
+    //
+    // Sampling *after* the flags are cleared and the IRQs enabled leaves no gap --
+    // anything happening from here on latches PCIF0/INTFn and wakes us normally,
+    // and anything already settled low is caught by this read. Setting the flag
+    // makes power_down() skip sleep_cpu() entirely, so the main loop keeps
+    // scanning and the debouncer can finish.
+    wait_us(MATRIX_SETTLE_US);
+    for (uint8_t i = 0; i < ARRAY_SIZE(row_pins); i++) {
+        if (!gpio_read_pin(row_pins[i])) {
+            matrix_wake_flag = true;
+        }
+    }
 #endif
 }
 

@@ -7,6 +7,7 @@ extern "C" {
 #include "debug.h"
 #include "timer.h"
 #include "suspend.h"
+#include "keyboard.h"
 #include <avr/wdt.h>
 #include <avr/sleep.h>
 #include <avr/interrupt.h>
@@ -28,7 +29,7 @@ extern "C" {
 #define ENABLE_POWER_SAVINGS 1
 
 #if ENABLE_POWER_SAVINGS
-#    define POWER_SAVE_TIMEOUT_MS 5000 // 5 sec
+#    define POWER_SAVE_TIMEOUT_MS 1000 // 1 sec
 #    define BLE_OFF_TIMEOUT_MS 300000  // 5 min
 #    ifndef MCU_POWER_DOWN_WDTO
 #        define MCU_POWER_DOWN_WDTO WDTO_15MS
@@ -179,15 +180,26 @@ static void power_down(uint8_t wdto) {
     // - BOD disable
     // - Power Reduction Register PRR
     set_sleep_mode(SLEEP_MODE_PWR_DOWN);
-    //    cli();
-    sleep_enable();
-    //    sleep_bod_disable();
-    // turn off brown-out enable in software
-    //    MCUCR = bit (BODS) | bit (BODSE);
-    //    MCUCR = bit (BODS);
-    sei();
-    sleep_cpu();
-    sleep_disable();
+
+    // matrix_sleep_arm() raises matrix_wake_flag when a key is already down. Edge
+    // triggered wake sources (PCINT) cannot fire for a line that was low before we
+    // armed, so sleeping here would swallow that press for the whole WDT period.
+    // Skip the sleep instead and let the main loop scan; the flag also tells
+    // mcu_power_down() to reset the inactivity timer so we stay awake long enough
+    // for the debouncer to commit.
+    if (!matrix_wake_flag) {
+        //    cli();
+        sleep_enable();
+        //    sleep_bod_disable();
+        // turn off brown-out enable in software
+        //    MCUCR = bit (BODS) | bit (BODSE);
+        //    MCUCR = bit (BODS);
+        sei();
+        sleep_cpu();
+        sleep_disable();
+    } else {
+        sei();
+    }
 
     matrix_sleep_disarm();
 
@@ -212,6 +224,15 @@ uint16_t timer_count_from_wdt_timeout(uint8_t wdto) {
             break;
         case WDTO_1S:
             tc = 1000 + 2;
+            break;
+        case WDTO_2S:
+            tc = 2000 + 2;
+            break;
+        case WDTO_4S:
+            tc = 4000 + 2;
+            break;
+        case WDTO_8S:
+            tc = 8000 + 2;
             break;
         default:;
     }
@@ -354,7 +375,10 @@ void send_buf_init(uint8_t resetPin, uint8_t sleepPin) {
 void power_savings_on() {
 #if ENABLE_POWER_SAVINGS
     uint32_t time_diff = timer_elapsed32(s_last_processed_blob_time);
-    if (time_diff > POWER_SAVE_TIMEOUT_MS) {
+    // Gate the MCU sleep on the *matrix* going quiet as well as the blob queue.
+    // Not every key event produces a blob (layer keys, mod holds), so blob idle
+    // time alone can decide to sleep while the user is mid-interaction.
+    if (time_diff > POWER_SAVE_TIMEOUT_MS && last_matrix_activity_elapsed() > POWER_SAVE_TIMEOUT_MS) {
         s_power_save_state |= POWER_SAVE_STATE_MCU;
     }
     if (time_diff > BLE_OFF_TIMEOUT_MS) {
