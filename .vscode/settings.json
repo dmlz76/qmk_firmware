@@ -53,6 +53,12 @@
         "editor.formatOnSave": false
     },
     "clangd.arguments": ["--header-insertion=never"],
+    // Fork-local: stop the C# Dev Kit extension (ms-dotnettools.csdevkit) from
+    // auto-generating qmk_firmware.sln. It scans the workspace for .csproj files,
+    // finds LUFA's three C# host demos under lib/lufa/Projects/, and since no
+    // solution exists it creates one named after the workspace folder. None of
+    // that is QMK code and the .sln is pure noise in git status.
+    "dotnet.defaultSolution": "disable",
     "json.schemas": [
         {
             "fileMatch": ["qmk.json"],
