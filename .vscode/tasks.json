@@ -7,7 +7,7 @@
             "command": "bash",
             "args": [
                 "-c",
-                "f='${relativeFile}'; case \"$f\" in keyboards/mini_mighty/kbd/*) kbs='mini_mighty/kbd';; keyboards/mini_mighty/kbd_wireless/*) kbs='mini_mighty/kbd_wireless';; keyboards/mini_mighty/mouse/*) kbs='mini_mighty/mouse/rev12';; keyboards/mini_mighty/dongle/*) kbs='mini_mighty/dongle';; keyboards/mini_mighty/common/*) kbs='mini_mighty/kbd_wireless mini_mighty/mouse/rev12 mini_mighty/dongle';; *) echo \"No QMK target for $f\" >&2; exit 1;; esac; for kb in $kbs; do echo \"> qmk compile -kb $kb -km default\"; qmk compile -kb \"$kb\" -km default || exit $?; done"
+                "f='${relativeFile}'; case \"$f\" in keyboards/mini_mighty/kbd/*) kbs='mini_mighty/kbd';; keyboards/mini_mighty/kbd_wireless/*) kbs='mini_mighty/kbd_wireless/rev2';; keyboards/mini_mighty/mouse/*) kbs='mini_mighty/mouse/rev12';; keyboards/mini_mighty/dongle/*) kbs='mini_mighty/dongle';; keyboards/mini_mighty/common/*) kbs='mini_mighty/kbd_wireless/rev2 mini_mighty/mouse/rev12 mini_mighty/dongle';; *) echo \"No QMK target for $f\" >&2; exit 1;; esac; for kb in $kbs; do echo \"> qmk compile -kb $kb -km default\"; qmk compile -kb \"$kb\" -km default || exit $?; done"
             ],
             "group": { "kind": "build", "isDefault": true },
             "problemMatcher": ["$gcc"],
