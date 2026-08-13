@@ -27,7 +27,11 @@
 // Leave off for normal builds (output auto-selects USB when enumerated).
 // #define FORCE_OUTPUT_BLUETOOTH
 
-// Watchdog period used for MCU power-down sleeps. Async wake
-// handles button/encoder events regardless of this value, so it only bounds
-// the timer drift correction window in WDT_vect. See ble_send_buf.cpp.
-#define MCU_POWER_DOWN_WDTO WDTO_1S
+// Watchdog period used for MCU power-down sleeps. Async wake (PCINT0/PCINT1)
+// handles button/encoder/motion events, so this is not the latency for normal
+// input -- but it IS what a *missed* wake costs: the MCU stays down for the full
+// period and the event is folded away unreported. matrix_sleep_arm()'s
+// check-after-arm closes the known holes; keep this modest anyway so an unknown
+// one degrades to a hiccup rather than a lost click. Under evaluation at 8s
+// (2026-08-13). See ble_send_buf.cpp.
+#define MCU_POWER_DOWN_WDTO WDTO_8S
