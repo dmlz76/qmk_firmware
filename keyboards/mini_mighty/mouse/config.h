@@ -34,4 +34,10 @@
 // check-after-arm closes the known holes; keep this modest anyway so an unknown
 // one degrades to a hiccup rather than a lost click. Under evaluation at 8s
 // (2026-08-13). See ble_send_buf.cpp.
+//
+// NB (2026-08-14): this is a real 8 s only because ble_send_buf.cpp enables the U2
+// Enhanced WDT's early-warning interrupt. Without WDEWIE the atmega16u2 does not fire
+// WDT_vect until *two* time-out periods, so this would be a 16 s nap credited as 8 s.
+// Don't reason about naps on this board straight from the datasheet's WDP table --
+// read wdt_early_warning_enable() first.
 #define MCU_POWER_DOWN_WDTO WDTO_8S

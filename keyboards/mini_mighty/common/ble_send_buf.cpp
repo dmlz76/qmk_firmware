@@ -157,6 +157,42 @@ __asm__ __volatile__ ( \
  */
 static uint8_t wdt_timeout = 0;
 
+#    if defined(WDTCKD)
+/** \brief Make WDT_vect fire on the *first* time-out (U2 family only)
+ *
+ * The atmega8u2/16u2/32u2 have an "Enhanced Watchdog Timer" that the atmega32u4 does
+ * not: the programmed WDP time-out only raises an **early warning**, and WDIE/WDT_vect
+ * does not fire until the counter reaches **twice** that value (doc7799 §10.4.2 and
+ * Table 10-3 — WDP=0110 → early warning 1.0 s / interrupt 2.0 s; WDP=1001 → 8.0 s /
+ * 16.0 s). avr-libc's WDTO_* labels and timer_count_from_wdt_timeout() below both
+ * assume the classic AVR watchdog, where the interrupt lands on the first time-out.
+ *
+ * Left alone, that made every nap on the mouse twice as long as it was credited, so
+ * the QMK clock silently lost half of each one: measured 2.07x at WDTO_1S and 2.09x at
+ * WDTO_8S (the residual ~5% is the oscillator at 3.3 V vs the table's VCC = 5.0 V), and
+ * a 60 s BLE_OFF_TIMEOUT_MS took 126-138 s of wall clock. Every idle timeout on the
+ * board stretched the same way — including the 5-minute production value, which really
+ * fired at ~10 minutes.
+ *
+ * Enabling WDEWIE routes the early warning to the same WDT_vect, so the wake lands on
+ * the nominal period and the credit table below is correct on both MCU families.
+ * WDEWIF is cleared by hardware on vector entry (WDEWIFCM stays 0). WCLKD[2:0] must
+ * stay 0 (ClkWDT = Clk128k / 1) — the datasheet's timed sequence exists to protect
+ * those bits, so the write is done inside it: set WDCE+WDE, store WDTCKD within four
+ * clock cycles, then let WDCE clear before wdt_intr_enable() opens its own window.
+ */
+static void wdt_early_warning_enable(void) {
+    // Load the value first so the two stores are back to back inside the 4-cycle window.
+    const uint8_t ckd = _BV(WDEWIE) | _BV(WDEWIF); // enable early warning, clear stale flag
+    WDTCSR            = _BV(WDCE) | _BV(WDE);
+    WDTCKD            = ckd;
+    __asm__ __volatile__("nop"
+                         "\n\t"
+                         "nop"
+                         "\n\t"); // wait out WDCE
+}
+#    endif
+
 /** \brief Power down
  *
  * FIXME: needs doc
@@ -165,6 +201,12 @@ static void power_down(uint8_t wdto) {
     wdt_timeout = wdto;
 
     cli();
+
+#    if defined(WDTCKD)
+    // Must precede wdt_intr_enable(): it leaves WDE set, and the prescaler write that
+    // clears WDE has to be the last step of the sequence (doc7799 §10.4.3).
+    wdt_early_warning_enable();
+#    endif
 
     // Watchdog Interrupt Mode
     wdt_intr_enable(wdto);
@@ -207,6 +249,12 @@ static void power_down(uint8_t wdto) {
     wdt_disable();
 }
 
+// How many milliseconds to credit the QMK clock for one completed nap. Assumes
+// WDT_vect fires on the *nominal* WDTO_* period, which holds on the atmega32u4 and —
+// thanks to wdt_early_warning_enable() above — on the U2 family too. Every WDTO_*
+// value avr-libc defines is covered, so the default case is unreachable; it must stay
+// that way, because falling through to tc = 0 freezes the clock for the whole idle
+// period and every timeout built on it stops advancing.
 uint16_t timer_count_from_wdt_timeout(uint8_t wdto) {
     uint16_t tc = 0;
     switch (wdto) {
@@ -221,6 +269,12 @@ uint16_t timer_count_from_wdt_timeout(uint8_t wdto) {
             break;
         case WDTO_120MS:
             tc = 120 + 2;
+            break;
+        case WDTO_250MS:
+            tc = 250 + 2;
+            break;
+        case WDTO_500MS:
+            tc = 500 + 2;
             break;
         case WDTO_1S:
             tc = 1000 + 2;
