@@ -45,7 +45,7 @@ static uint8_t  s_power_save_state         = 0;
 static RingBuffer<transfer_blob_t, 20> s_send_buf;
 
 #define BLE_RESET_HOLD_MS 100
-#define BLE_RESET_WAIT_MS 500
+#define BLE_RESET_WAIT_MS 150
 
 // BLE reboot is driven as a non-blocking state machine so the keyboard task
 // keeps scanning the matrix (and s_send_buf keeps buffering keystrokes) across
