@@ -26,6 +26,24 @@ extern "C" {
 #define PostSelectWait 250      /* microseconds */
 #define BackOff 100             /* microseconds */
 
+// Back off for one drain iteration when the nRF's capture ring has fewer than
+// this many slots free. Largely theoretical against its 63 usable slots, but it
+// makes that depth self-documenting instead of a constant the two repos have to
+// keep in sync by hand.
+#define BLE_RING_MIN_FREE 4
+
+// MISO has to idle high so the window before the nRF configures its SPIS reads a
+// clean TRANSFER_STATUS_UNARMED instead of a floating line — "not ready" is only
+// distinguishable from noise if the line is pulled somewhere. Neither PCB has a
+// pull-up on BLE_MISO (both netlists put exactly two pads on that net, MCU and
+// module), so use the AVR's internal one: with SPE|MSTR set the hardware forces
+// MISO to input, but PORTxn still gates the pull-up.
+// platforms/avr/drivers/spi_master.c keeps SPI_MISO_PIN private to itself, so
+// mirror it here — B3 on every AVR this file builds for (16u2/32u2/32u4).
+#ifndef BLE_SPI_MISO_PIN
+#    define BLE_SPI_MISO_PIN B3
+#endif
+
 #define ENABLE_POWER_SAVINGS 1
 
 #if ENABLE_POWER_SAVINGS
@@ -42,7 +60,16 @@ static uint32_t s_last_processed_blob_time = 0;
 static uint8_t  s_power_save_state         = 0;
 #endif
 
+// Depth pairs with the nRF's capture ring, which is 64 slots / 63 usable. If
+// this ever grows past ~60, SPI_RING_SIZE in mini_mighty_spi_transfer.c has to
+// grow with it — nothing enforces that across the two repos except this comment.
 static RingBuffer<transfer_blob_t, 20> s_send_buf;
+
+// State carried between SPI transactions from the status the nRF shifts back on
+// MISO (transfer_status_t). See blob_landed() for what each one is for.
+static uint8_t s_last_accepted  = 0;     // `accepted` read on the last armed transaction
+static bool    s_accepted_valid = false; // is s_last_accepted a usable baseline?
+static bool    s_ring_backoff   = false; // nRF ring nearly full: skip one drain
 
 #define BLE_RESET_HOLD_MS 100
 #define BLE_RESET_WAIT_MS 150
@@ -71,6 +98,13 @@ static void ble_start_turn_on() {
     }
 
     gpio_write_pin_high(s_sleepPin);
+
+    // The nRF comes back with its capture ring empty and its `accepted` counter
+    // restarted at 0, so nothing learned before the reset carries across: the
+    // first transaction after it establishes a new baseline rather than failing
+    // one.
+    s_accepted_valid = false;
+    s_ring_backoff   = false;
 
     gpio_write_pin_high(s_resetPin);
     gpio_write_pin_low(s_resetPin); // assert reset; held until the phase deadline
@@ -303,6 +337,7 @@ ISR(WDT_vect) {
 #if ENABLE_POWER_SAVINGS
 static void mcu_power_down() {
     if (USB_DeviceState == DEVICE_STATE_Configured) {
+        s_power_save_state &= ~POWER_SAVE_STATE_MCU;
         return;
     }
 
@@ -352,6 +387,51 @@ static void mcu_wake_up() {
 }
 #endif
 
+// Turn the status the nRF just shifted back on MISO into "did this blob land?".
+//
+// Rule 1 — free_slots == TRANSFER_STATUS_UNARMED. The SPIS takes (or fails to
+// take) its semaphore when CSN goes low, so a peripheral that was unarmed then
+// clocks its DEF character for the whole frame and captures nothing: *this*
+// blob evaporated and the caller has to resend it. Nothing was published for
+// such a transaction, so it is not a baseline for `accepted` either.
+//
+// Rule 2 — `accepted`. The SPIS latches its TX buffer at CSN assert, so what we
+// read during transaction N is what the nRF published at the end of N-1: it
+// reports the fate of the *previous* blob, and between two armed transactions
+// it must advance by exactly one. That makes it a cross-check rather than the
+// gate — an armed SPIS that clocked all 8 bytes has taken the blob by
+// construction, since the only frame it drops is one with rx_amount != 8. A
+// stall here means a frame was truncated on the wire.
+//
+// A stall is reported, not repaired. The lost blob's successor was clocked out
+// in the very transaction that revealed the loss, so resending the lost one now
+// would put stale state after fresh — and it needs no resend: blobs are
+// absolute HID state, so the newer report supersedes it (the same reasoning
+// behind send_buf_force_enqueue()'s drop-oldest). What that leaves uncovered is
+// a truncated frame carrying the *last* blob of a burst, which no later
+// transaction would ever reveal; closing it would cost a confirming transaction
+// at the end of every burst — double the BLE traffic — to chase a failure that
+// takes a glitch on CSN or SCK to happen at all.
+// `stalled` reports the rule 2 miss to the caller instead of logging it here:
+// this runs between the last clocked byte and spi_stop(), so anything slow at
+// this point holds CSN asserted — and the nRF's XFER_DONE, and therefore its
+// re-arm, fire on CSN *deassert*. A uprintf here would stall the peripheral it
+// is measuring for as long as the console endpoint takes to drain.
+static bool blob_landed(const transfer_status_t &st, bool &stalled) {
+    stalled = false;
+
+    if (st.s.free_slots == TRANSFER_STATUS_UNARMED) {
+        return false;
+    }
+
+    stalled          = (s_accepted_valid && st.s.accepted == s_last_accepted);
+    s_last_accepted  = st.s.accepted;
+    s_accepted_valid = true;
+    s_ring_backoff   = (st.s.free_slots < BLE_RING_MIN_FREE);
+
+    return true;
+}
+
 static bool process_blob(const transfer_blob_t &blob, uint16_t timeout) {
     bool spi_started = spi_start(SPI_SS_PIN, LSBFIRST, SPI_MODE, SCK_DIVISOR);
     if (!spi_started) {
@@ -362,13 +442,29 @@ static bool process_blob(const transfer_blob_t &blob, uint16_t timeout) {
     }
     wait_us(PostSelectWait);
 
-    uint16_t timerStart = timer_read();
-    bool success = false;
+    uint16_t          timerStart = timer_read();
+    bool              success    = false;
+    bool              stalled    = false;
+    transfer_status_t st;
     do {
+        // spi_transmit() with the per-byte return kept instead of discarded: it
+        // is already literally this loop (platforms/avr/drivers/spi_master.c),
+        // and SPI being full duplex, the nRF's status arrives on MISO during the
+        // same byte-times the blob costs on MOSI. Same clocks, one extra store
+        // per byte.
+        spi_status_t write_status = SPI_STATUS_SUCCESS;
+        for (uint8_t i = 0; i < sizeof(blob.raw); i++) {
+            write_status = spi_write(blob.raw[i]);
+            if (write_status < 0) {
+                break;
+            }
+            st.raw[i] = (uint8_t)write_status;
+        }
 
-        spi_status_t type_status = spi_transmit(blob.raw, sizeof(blob.raw));
-        success = (type_status == SPI_STATUS_SUCCESS);
-        if (success) {
+        // Bailing out mid-frame leaves a short transaction, which the nRF drops
+        // — so that retries exactly like an unarmed one does.
+        if (write_status >= 0 && blob_landed(st, stalled)) {
+            success = true;
             break;
         }
 
@@ -382,6 +478,28 @@ static bool process_blob(const transfer_blob_t &blob, uint16_t timeout) {
     } while (timer_elapsed(timerStart) < timeout);
 
     spi_stop();
+
+    // Diagnostics only once CSN is released and the nRF's ISR has been let go.
+#ifdef CONSOLE_ENABLE
+    if (stalled) {
+        uprintf("SPI blob dropped (acc %u)\n", st.s.accepted);
+    }
+#    ifdef BLE_SPI_STATUS_DEBUG
+    // Print on *change* rather than per transaction. free_slots parks at 63 in
+    // steady state, so a per-transaction trace is ~50x the output for the same
+    // information — and the QMK console drops lines when its endpoint buffer
+    // fills, which is precisely what happens during the wake burst this is meant
+    // to observe. On-change gives the fill trajectory, which is the question;
+    // `accepted` advancing by one per transaction is already checked every time
+    // by rule 2 above, which logs when it doesn't.
+    static uint8_t last_free = 0xFE; // not a value free_slots can take
+    if (success && st.s.free_slots != last_free) {
+        last_free = st.s.free_slots;
+        uprintf("SPI free %u acc %u\n", st.s.free_slots, st.s.accepted);
+    }
+#    endif
+#endif
+
     return success;
 }
 
@@ -417,6 +535,9 @@ void send_buf_init(uint8_t resetPin, uint8_t sleepPin) {
     // setup_power_savings();
 
     spi_init();
+
+    // Must follow spi_init(), which leaves MISO a plain input with no pull-up.
+    gpio_set_pin_input_high(BLE_SPI_MISO_PIN);
 
     // At init there is nothing else to do, so spin the non-blocking reboot
     // state machine to completion before returning.
@@ -479,8 +600,20 @@ bool send_buf_send_one(uint16_t timeout) {
         return false;
     }
 
+    if (s_ring_backoff) {
+        // The nRF's capture ring was nearly full as of the last transaction —
+        // give it a main-loop iteration to drain instead of hammering it. Clear
+        // the flag as we consume it: free_slots only refreshes on a transaction,
+        // so a check that stayed set until a better reading arrived would wait
+        // for a reading it is itself preventing.
+        s_ring_backoff = false;
+        return false;
+    }
+
     if (process_blob(blob, timeout)) {
-        // commit that peek
+        // Commit that peek. process_blob() only reports success once the status
+        // on MISO says an armed nRF took the whole frame, so this now means "the
+        // nRF has it" rather than the old "the AVR finished shifting bits out".
         s_send_buf.get(blob);
 #if ENABLE_POWER_SAVINGS
         s_last_processed_blob_time = timer_read32();
