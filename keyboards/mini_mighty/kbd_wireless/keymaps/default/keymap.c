@@ -42,6 +42,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 // clang-format on
 
 bool process_detected_host_os_user(os_variant_t os) {
+#ifndef FORCE_OUTPUT_BLUETOOTH
 #ifdef CONSOLE_ENABLE
     switch (os) {
         case OS_MACOS:
@@ -68,6 +69,7 @@ bool process_detected_host_os_user(os_variant_t os) {
     else /* Else use PC layer */ {
         set_single_default_layer(_PC);
     }
+#endif
     return true;
 }
 
