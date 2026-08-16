@@ -19,6 +19,7 @@
         "mouse": true,
         "mousekey": false,
         "nkro": false,
+        "os_detection": true,
         "pointing_device": false,
         "encoder": false,
         "grave_esc": false,

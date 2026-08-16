@@ -6,6 +6,7 @@
 #include "wait.h"
 #include "debug.h"
 #include "report.h"
+#include "os_detection.h"
 #ifdef MOUSE_ENABLE
 #include "host.h"
 #endif
@@ -166,7 +167,18 @@ uint8_t matrix_scan(void) {
 #endif
 
     if (k_changed) {
-        keyboard_report.mods = blob.k.mods;
+        os_variant_t os = detected_host_os();
+        uint8_t mods = blob.k.mods;
+        if (os == OS_MACOS || os == OS_IOS) {
+            // Swap the Command and Option keys for Apple devices
+            bool cmd = mods & 4;
+            bool opt = mods & 8;
+            mods &= ~(4 | 8);
+            mods |= cmd ? 8 : 0;
+            mods |= opt ? 4 : 0;
+        }
+        keyboard_report.mods = mods;
+
         static_assert(KEYBOARD_REPORT_KEYS == 6, "Expected 6 keys in keyboard report");
         for (uint8_t i = 0; i < KEYBOARD_REPORT_KEYS; i++) {
             keyboard_report.keys[i] = blob.k.keys[i];
