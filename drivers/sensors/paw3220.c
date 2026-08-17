@@ -5,9 +5,9 @@
 #include "wait.h"
 #include "debug.h"
 #include "gpio.h"
+#include "progmem.h"
 #include "pointing_device_internal.h"
 
-#define USE_LED_CURRENT_SOURCE_MODE 1
 #define MANUAL_POWER_ON_RESET 0
 
 #define REG_PID1 0x00
@@ -27,6 +27,45 @@
 #define REG_MOUSE_OPTION 0x19
 #define REG_SPI_MODE 0x26
 #define REG_LED_OPTION 0x5C
+
+// Datasheet §8.1.1.1 — the initialization sequence for 3-wire SPI / High Voltage
+// Segment (VDD = 2.1 to 3.6 V), which the datasheet calls "necessary ... to ensure
+// the correct operations and the best tracking performance". Everything here lives
+// above address 0x10, so the whole block runs between the two Write_Protect writes.
+//
+// Two entries matter for power specifically:
+//   0x4B = 0x00 selects the High Voltage Segment. §5.1.2 warns that if this register
+//          "is not set properly, the chip would consume extra power due to the
+//          current leakage of the internal regulator" — it powers up correct for
+//          this segment, but the vendor sequence writes it anyway, so we do too.
+//   0x5C = 0xD4 is current-source mode at 4 mA. Current-source is not optional on
+//          this hardware: D3's anode ties straight to VCC with no series resistor
+//          (mini_mighty_mouse.kicad_sch), so current-switch mode — the power-on
+//          default — has nothing limiting ILED. Note 0xD4, not 0x14: bits [7:6] are
+//          Reserved and power up as 1, and only bits [5:4] (mode) and [3:0]
+//          (ILED = n × 1 mA) are ours to set.
+// 0x42-0x4A / 0x64 / 0x79 are undocumented tuning registers in bank 1, hence the
+// 0x7F bank select around them. Values are transcribed from the datasheet verbatim.
+static const uint8_t PROGMEM paw3220_init_seq[] = {
+    REG_WRITE_PROTECT, 0x5A, // disable write protect
+    0x4B,              0x00, // High Voltage Segment (VDD = 2.1 to 3.6 V)
+    REG_LED_OPTION,    0xD4, // current source mode, 4 mA
+    REG_CPI_X,         0x1A,
+    REG_CPI_Y,         0x1C,
+    0x7F,              0x01, // select bank 1
+    0x42,              0x4F,
+    0x43,              0x93,
+    0x44,              0x48,
+    0x45,              0xF2,
+    0x47,              0x4F,
+    0x48,              0x93,
+    0x49,              0x48,
+    0x4A,              0xF3,
+    0x64,              0x66,
+    0x79,              0x08,
+    0x7F,              0x00, // back to bank 0
+    REG_WRITE_PROTECT, 0x00, // enable write protect
+};
 
 const pointing_device_driver_t paw3220_pointing_device_driver = {
     .init       = paw3220_init,
@@ -92,6 +131,19 @@ static uint8_t paw3220_read_reg(uint8_t reg_addr) {
     uint8_t byte = paw3220_serial_read();
     wait_us(1);
     paw3220_deselect();
+
+    // Park SDIO at a defined level instead of leaving it floating. paw3220_serial_read()
+    // ends with gpio_set_pin_input(), which on AVR clears PORTxn as well as DDRxn — so
+    // between transactions the net floats at both ends, and on a battery board that
+    // gap is the entire MCU nap (seconds, not microseconds). Our own input buffer is
+    // clamped while asleep (ATmega8U2/16U2/32U2 doc7799 §12.2.5), but the sensor's is
+    // not, and a CMOS input sitting near VCC/2 draws through-current the whole time.
+    // Safe to drive: the sensor puts SDIO in high-Z whenever NCS is high (§6), which
+    // paw3220_deselect() has just done. Write the level before switching direction so
+    // no stale PORTxn value can glitch the line high on the way out.
+    gpio_write_pin_low(PAW3220_SDIO_PIN);
+    gpio_set_pin_output(PAW3220_SDIO_PIN);
+
     return byte;
 }
 
@@ -122,13 +174,16 @@ void paw3220_init(void) {
     wait_us(100);
 #endif
 
-    paw3220_write_reg(REG_CONFIG, 0x20); // enable Sleep3 mode
+    for (uint8_t i = 0; i < sizeof(paw3220_init_seq); i += 2) {
+        paw3220_write_reg(pgm_read_byte(&paw3220_init_seq[i]), pgm_read_byte(&paw3220_init_seq[i + 1]));
+    }
 
-#if USE_LED_CURRENT_SOURCE_MODE
-    paw3220_write_reg(REG_WRITE_PROTECT, 0x5A);
-    paw3220_write_reg(REG_LED_OPTION, 0x014); // 4 mA
-    paw3220_write_reg(REG_WRITE_PROTECT, 0x0);
-#endif
+    // Enable Sleep3, the deepest of the three automatic power-saving modes (8 µA vs
+    // 30 µA in Sleep1), which is the one mode disabled by default. 0x31, not 0x20:
+    // Configuration powers up at 0x11 and bits 4 and 0 are Reserved — a bare 0x20
+    // sets Slp3_Enh but also writes zeros over both of them. Address 0x06 is below
+    // 0x10, so Write_Protect does not apply and this can sit outside the sequence.
+    paw3220_write_reg(REG_CONFIG, 0x11 | 0x20);
 
 #ifdef POINTING_DEVICE_DEBUG
     uint8_t pid1 = paw3220_read_reg(REG_PID1);
