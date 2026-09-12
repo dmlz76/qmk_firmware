@@ -2,7 +2,7 @@
     "matrix_pins": {
         "direct": [
             [
-                "D7",
+                "C2",
                 "B6",
                 "B7"
             ]

@@ -8,22 +8,13 @@
 
 volatile bool matrix_wake_flag = false;
 
-#if MMM_VER >= 12
-#define USE_INT7 0
-#else
-#define USE_INT7 1
-#endif
+// All supported boards put the three buttons on direct pins covered by PCINT0
+// (B6/B7) and PCINT1 (C2), so there is no INT7 wake source any more -- that was
+// PCB 0.11.0, where the (0,0) button sat on D7. Dropped with rev11.
 #define USE_PCINT0 1
 #define USE_PCINT1 1
 
 #define TIMER_INCR_ON_INTR 1
-
-#if USE_INT7
-ISR(INT7_vect)   { 
-    EIMSK &= ~_BV(INT7);   
-    matrix_wake_flag = true; 
-}
-#endif
 
 #if USE_PCINT0
 ISR(PCINT0_vect) { 
@@ -42,18 +33,9 @@ ISR(PCINT1_vect) {
 void matrix_sleep_arm(void) {
     matrix_wake_flag = false;
  
-#if MMM_VER >= 12
     // turn off the internal pull-ups on the encoder pins (leaving just the external pull-ups)
     gpio_set_pin_input(B4);
     gpio_set_pin_input(B5);
-#endif
-
-#if USE_INT7
-    // INT7 low-level trigger (ISC71:ISC70 = 00).
-    EICRB &= ~(_BV(ISC71) | _BV(ISC70));
-    EIFR   = _BV(INTF7);
-    EIMSK |= _BV(INT7);
-#endif
 
 #if USE_PCINT0
     PCIFR |= _BV(PCIF0);
@@ -65,12 +47,8 @@ void matrix_sleep_arm(void) {
 #if USE_PCINT1
     PCIFR |= _BV(PCIF1);
     PCICR |= _BV(PCIE1);
-#if MMM_VER >= 12
     // PCINT8 (motion pin C6), PCINT11 (C2 btn)
     PCMSK1 = _BV(PCINT8) | _BV(PCINT11);
-#else
-    PCMSK1 = _BV(PCINT8);
-#endif
 #endif
 
     // Check-after-arm — mirrors kbd_wireless/matrix_sleep.c. PCINT fires on a
@@ -118,10 +96,6 @@ void matrix_sleep_arm(void) {
 }
 
 void matrix_sleep_disarm(void) {
-#if USE_INT7
-    EIMSK  &= ~_BV(INT7);
-#endif
-
 #if USE_PCINT0
     PCMSK0  = 0;
     PCICR  &= ~_BV(PCIE0);
@@ -132,9 +106,7 @@ void matrix_sleep_disarm(void) {
     PCICR  &= ~_BV(PCIE1);
 #endif
 
-#if MMM_VER >= 12
     // turn back on the internal pull-ups on the encoder pins
     gpio_set_pin_input_high(B4);
     gpio_set_pin_input_high(B5);
-#endif
 }
