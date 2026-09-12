@@ -2,7 +2,14 @@
 // Captures the AVR reset cause (MCUSR) very early at boot and prints a decoded
 // reason once the console is up — the AVR analog of the nRF's RESETREAS log.
 // Used to classify the intermittent mini_mighty resets (brown-out vs watchdog
-// vs software jmp 0). See MOUSE_NRF_REBOOT_HANDOFF.md.
+// vs software jmp 0).
+//
+// Why it earns its flash: the mouse's nRF was rebooting on a ~10 s cycle, and the
+// nRF's own RESETREAS read PIN every time — an externally asserted reset. The
+// only thing wired to that line is this MCU (RST_PIN), so the nRF was the
+// symptom, not the cause: the AVR was resetting every ~10 s and pulsing the nRF
+// on its way back up. That turns the question into "why does the AVR reset?",
+// and MCUSR is the only thing that answers it.
 
 #include <stdint.h>
 
