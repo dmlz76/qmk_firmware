@@ -83,6 +83,25 @@ static bool    s_ring_backoff   = false; // nRF ring nearly full: skip one drain
 #define BLE_STATE_RESETTING 2    // reset asserted low, waiting out the hold pulse
 #define BLE_STATE_INITIALIZING 3 // reset released, waiting for the nRF to boot
 #define BLE_STATE_ON 4
+#define BLE_STATE_DISABLED 5     // kill switch OFF: hardware holds the nRF in reset
+
+#ifdef BLE_KILL_SWITCH_ON_RESET_PIN
+// How often to sample the kill switch, how many agreeing samples a transition
+// needs, and how long to let the line settle once released. See
+// kill_switch_reads_off() for why the release is safe.
+#    ifndef BLE_KILL_SWITCH_POLL_MS
+#        define BLE_KILL_SWITCH_POLL_MS 250
+#    endif
+#    ifndef BLE_KILL_SWITCH_POLLS
+#        define BLE_KILL_SWITCH_POLLS 2
+#    endif
+#    ifndef BLE_KILL_SWITCH_SETTLE_US
+#        define BLE_KILL_SWITCH_SETTLE_US 50
+#    endif
+
+static uint16_t s_kill_switch_poll_time = 0;
+static uint8_t  s_kill_switch_streak    = 0;
+#endif
 
 static uint8_t  s_resetPin       = 0;
 static uint8_t  s_sleepPin       = 0;
@@ -96,6 +115,15 @@ static void ble_start_turn_on() {
     if (s_ble_state == BLE_STATE_ON || s_ble_state == BLE_STATE_RESETTING || s_ble_state == BLE_STATE_INITIALIZING) {
         return;
     }
+
+#ifdef BLE_KILL_SWITCH_ON_RESET_PIN
+    // The switch owns the reset line while it is OFF. Driving it here would fight
+    // a 1 kOhm pull-down and bring up a radio the user asked to be off; only
+    // kill_switch_task() may leave this state.
+    if (s_ble_state == BLE_STATE_DISABLED) {
+        return;
+    }
+#endif
 
     gpio_write_pin_high(s_sleepPin);
 
@@ -147,6 +175,13 @@ static void ble_turn_off() {
         return;
     }
 
+#ifdef BLE_KILL_SWITCH_ON_RESET_PIN
+    // Already off, and harder than this function can manage.
+    if (s_ble_state == BLE_STATE_DISABLED) {
+        return;
+    }
+#endif
+
     gpio_write_pin_low(s_sleepPin);
 
     s_ble_state = BLE_STATE_OFF;
@@ -155,6 +190,120 @@ static void ble_turn_off() {
     uprintf("ble_turn_off\n");
 #endif
 }
+
+#ifdef BLE_KILL_SWITCH_ON_RESET_PIN
+// Wireless kill switch, read off the reset line itself.
+//
+// Mouse PCB v1.0.0 gives the battery slide switch a second pole: in the OFF
+// position it grounds the nRF's ~RESET through 1 kOhm, so the radio is held in
+// reset from the instant the rail comes up -- before this firmware runs, and
+// regardless of what it does. That costs no MCU pin, because the line the AVR
+// already owns carries both the enforcement and the sense.
+//
+// Reading it is the awkward half. While wireless is enabled the AVR drives that
+// pin push-pull high, and a ~25 Ohm driver beats a 1 kOhm pull-down, so a switch
+// flipped to OFF at runtime does *not* assert reset and stays invisible until we
+// look. Looking means releasing the pin for a moment and letting the pull-ups
+// answer:
+//
+//   switch ON  - the nRF's own ~13 kOhm reset pull-up (parallel with ours) holds
+//                the line exactly where we were driving it. No edge, no glitch.
+//   switch OFF - the 1 kOhm wins, which is the state we are trying to reach
+//                anyway, so the "glitch" is the intended outcome.
+//
+// Undriven for BLE_KILL_SWITCH_SETTLE_US out of every BLE_KILL_SWITCH_POLL_MS is
+// ~0.02% of the time, on a short DC trace carrying ~9 kOhm of pull-up.
+
+// Sample the switch: true means it reads OFF (line pulled to GND).
+static bool kill_switch_reads_off() {
+    const bool driving = (s_ble_state != BLE_STATE_DISABLED);
+
+    if (driving) {
+        // PORTxn goes high here, so restoring the drive below re-asserts high the
+        // instant DDRxn is set -- there is no low-going glitch in between.
+        gpio_set_pin_input_high(s_resetPin);
+        wait_us(BLE_KILL_SWITCH_SETTLE_US);
+    }
+
+    const bool off = !gpio_read_pin(s_resetPin);
+
+    if (driving) {
+        // Restore the drive even when the read says OFF. The state change needs
+        // BLE_KILL_SWITCH_POLLS agreeing samples, and until they agree a one-off
+        // noise dip must not leave the nRF parked in reset. In the genuine-OFF
+        // case this sources ~3.3 mA into the 1 kOhm for one more poll period --
+        // exactly the fault current that resistor is sized for, and only ever on
+        // USB power, since OFF means the cell is disconnected.
+        gpio_set_pin_output(s_resetPin);
+    }
+
+    return off;
+}
+
+// Poll the switch and act on a confirmed change. Cheap enough to call every tick;
+// it rate-limits itself.
+static void kill_switch_task() {
+    // Never touch the line mid-reboot: releasing it during the hold pulse would
+    // end the pulse early and releasing it during init proves nothing.
+    if (s_ble_state == BLE_STATE_RESETTING || s_ble_state == BLE_STATE_INITIALIZING) {
+        return;
+    }
+    if (timer_elapsed(s_kill_switch_poll_time) < BLE_KILL_SWITCH_POLL_MS) {
+        return;
+    }
+    s_kill_switch_poll_time = timer_read();
+
+    const bool off      = kill_switch_reads_off();
+    const bool disabled = (s_ble_state == BLE_STATE_DISABLED);
+
+    if (off == disabled) {
+        s_kill_switch_streak = 0; // agrees with where we already are
+        return;
+    }
+    if (++s_kill_switch_streak < BLE_KILL_SWITCH_POLLS) {
+        return;
+    }
+    s_kill_switch_streak = 0;
+
+    if (off) {
+        // Hand the line to the switch and stop talking to a radio that is now held
+        // in reset. Drop what is queued: blobs are absolute HID state, so anything
+        // waiting here is stale by the time the switch comes back, and replaying it
+        // would put an old report after a fresh one.
+        gpio_set_pin_input_high(s_resetPin);
+        gpio_write_pin_low(s_sleepPin);
+
+        transfer_blob_t discard;
+        while (s_send_buf.get(discard)) {
+        }
+
+        s_accepted_valid = false;
+        s_ring_backoff   = false;
+        s_ble_state      = BLE_STATE_DISABLED;
+#    ifdef CONSOLE_ENABLE
+        uprintf("ble_kill_switch off\n");
+#    endif
+    } else {
+        // PORTxn is still high from the pull-up, so this drives high immediately.
+        gpio_set_pin_output(s_resetPin);
+        s_ble_state = BLE_STATE_UNKNOWN;
+
+#    if ENABLE_POWER_SAVINGS
+        // Re-baseline the idle timers before booting the nRF. s_last_processed_blob_time
+        // has been standing still for the whole disabled stretch, so leaving it
+        // alone would have power_savings_on() decide BLE_OFF_TIMEOUT_MS had already
+        // elapsed and put the radio straight back to sleep on the next quiet tick.
+        s_last_processed_blob_time = timer_read32();
+        s_power_save_state         = 0;
+#    endif
+
+        ble_start_turn_on();
+#    ifdef CONSOLE_ENABLE
+        uprintf("ble_kill_switch on\n");
+#    endif
+    }
+}
+#endif // BLE_KILL_SWITCH_ON_RESET_PIN
 
 #if defined(WDT_vect)
 
@@ -529,6 +678,33 @@ void send_buf_init(uint8_t resetPin, uint8_t sleepPin) {
     s_resetPin = resetPin;
     s_sleepPin = sleepPin;
 
+#ifdef BLE_KILL_SWITCH_ON_RESET_PIN
+    // Read the kill switch *before* this pin becomes an output. Out of MCU reset
+    // it is hi-Z with no pull, and since the rail came up it has been held high by
+    // the nRF's reset pull-up or low by the switch -- so the level here is the
+    // switch position, and the nRF is already sitting in reset if it says OFF.
+    gpio_set_pin_input_high(s_resetPin);
+    wait_us(BLE_KILL_SWITCH_SETTLE_US);
+    s_kill_switch_poll_time = timer_read();
+    if (!gpio_read_pin(s_resetPin)) {
+        // Wireless off. Leave the reset line to the switch and return without
+        // booting the nRF -- no 150 ms init window, no SPI traffic. SPI itself is
+        // still brought up (duplicated from the enabled path below, deliberately:
+        // keeping this branch self-contained leaves the shared path byte-identical
+        // for the boards that have no kill switch) so a later flip to ON is just a
+        // reset pulse.
+        s_ble_state = BLE_STATE_DISABLED;
+        gpio_set_pin_output(s_sleepPin);
+        gpio_write_pin_low(s_sleepPin);
+        spi_init();
+        gpio_set_pin_input_high(BLE_SPI_MISO_PIN);
+#    ifdef CONSOLE_ENABLE
+        uprintf("ble_kill_switch off at boot\n");
+#    endif
+        return;
+    }
+#endif
+
     gpio_set_pin_output(s_resetPin);
     gpio_set_pin_output(s_sleepPin);
 
@@ -585,6 +761,16 @@ void power_savings_off() {
 }
 
 bool send_buf_send_one(uint16_t timeout) {
+#ifdef BLE_KILL_SWITCH_ON_RESET_PIN
+    kill_switch_task();
+    if (s_ble_state == BLE_STATE_DISABLED) {
+        // No radio to drain to. Still run the idle path so the MCU sleep logic
+        // keeps working -- ble_turn_off() is a no-op in this state.
+        power_savings_on();
+        return false;
+    }
+#endif
+
     transfer_blob_t blob;
     if (!s_send_buf.peek(blob)) {
         power_savings_on();
@@ -627,11 +813,25 @@ bool send_buf_send_one(uint16_t timeout) {
 
 bool send_buf_enqueue(const transfer_blob_t *blob) {
     assert(blob);
+#ifdef BLE_KILL_SWITCH_ON_RESET_PIN
+    // Radio is off by hardware, so drop rather than queue. Reporting success is
+    // deliberate: the caller's backpressure drain (bluetooth_custom.c) would
+    // otherwise spin SEND_BUF_MAX_DRAIN times per report against a queue nothing
+    // will ever empty.
+    if (s_ble_state == BLE_STATE_DISABLED) {
+        return true;
+    }
+#endif
     return s_send_buf.enqueue(*blob);
 }
 
 bool send_buf_force_enqueue(const transfer_blob_t *blob) {
     assert(blob);
+#ifdef BLE_KILL_SWITCH_ON_RESET_PIN
+    if (s_ble_state == BLE_STATE_DISABLED) {
+        return false; // dropped, but nothing was evicted to do it
+    }
+#endif
     if (s_send_buf.enqueue(*blob)) {
         return false;
     }

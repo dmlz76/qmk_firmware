@@ -1,6 +1,6 @@
 #pragma once
 
-#define MMKW_VER 2
+#define MMKW_VER MM_PCB_VERSION(0, 2, 0)
 
 #define RST_PIN C6
 #define SLEEP_PIN D7

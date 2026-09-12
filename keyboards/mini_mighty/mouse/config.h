@@ -1,5 +1,9 @@
 #pragma once
 
+// MM_PCB_VERSION(), used by rev*/config.h to define MMM_VER. Included here
+// because QMK pulls in this shared config before the leaf revision one.
+#include "pcb_version.h"
+
 #define ENCODER_RESOLUTION 2
 
 #define MK_KINETIC_SPEED

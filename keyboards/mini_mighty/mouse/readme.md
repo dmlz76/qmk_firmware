@@ -10,12 +10,12 @@
 
 Build the PCB revision you have (after setting up your build environment):
 
-    qmk compile -kb mini_mighty/mouse/rev11 -km default
-    qmk compile -kb mini_mighty/mouse/rev12 -km default
+    qmk compile -kb mini_mighty/mouse/rev12 -km default     # PCB v0.12.0
+    qmk compile -kb mini_mighty/mouse/rev1_0_0 -km default  # PCB v1.0.0
 
 Flash (enter the bootloader first — see below):
 
-    qmk flash -kb mini_mighty/mouse/rev12 -km default
+    qmk flash -kb mini_mighty/mouse/rev1_0_0 -km default
 
 > Pick a revision — the bare `mini_mighty/mouse` target is a parent and is not
 > buildable (it has no matrix). Build with the `qmk` CLI, not a bare `make`: `qmk`

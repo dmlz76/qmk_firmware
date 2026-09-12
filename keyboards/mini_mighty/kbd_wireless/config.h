@@ -1,3 +1,7 @@
+// MM_PCB_VERSION(), used by rev*/config.h to define MMKW_VER. Included here
+// because QMK pulls in this shared config before the leaf revision one.
+#include "pcb_version.h"
+
 #define USB_SUSPEND_WAKEUP_DELAY 200
 #define NO_SUSPEND_POWER_DOWN 1
 
