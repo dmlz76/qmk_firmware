@@ -76,8 +76,14 @@ static bool    s_ring_backoff   = false; // nRF ring nearly full: skip one drain
 
 // BLE reboot is driven as a non-blocking state machine so the keyboard task
 // keeps scanning the matrix (and s_send_buf keeps buffering keystrokes) across
-// the nRF's ~600 ms reset/init window. Blocking here used to drop any key
-// pressed during the wake-from-suspend BLE reboot — see WAKE_KEYLOSS_HANDOFF.md.
+// the nRF's reset/init window — BLE_RESET_HOLD_MS + BLE_RESET_WAIT_MS above,
+// 250 ms as currently tuned.
+//
+// Do not make this blocking again. It used to busy-wait, and a key pressed
+// during a wake-from-suspend reboot was lost outright: with the main loop
+// stopped the matrix is never scanned, so press and release both land inside the
+// window, raw comes back matching cooked, and sym_defer_g folds the keystroke
+// away without ever reporting it.
 #define BLE_STATE_UNKNOWN 0
 #define BLE_STATE_OFF 1
 #define BLE_STATE_RESETTING 2    // reset asserted low, waiting out the hold pulse
