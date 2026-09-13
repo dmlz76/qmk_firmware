@@ -12,6 +12,19 @@
             "group": { "kind": "build", "isDefault": true },
             "problemMatcher": ["$gcc"],
             "presentation": { "reveal": "always", "panel": "shared", "clear": true }
+        },
+        {
+            "label": "QMK: Format current JSON file",
+            "type": "process",
+            "command": "bash",
+            "args": [
+                "-c",
+                "f=\"$1\"\ncase \"$f\" in\n  *.json) ;;\n  *) echo \"Not a .json file: $f\" >&2; exit 1 ;;\nesac\nif ! python3 -c 'import json,sys; json.load(open(sys.argv[1]))' \"$f\" >/dev/null 2>&1; then\n  echo \"Refusing to format $f\" >&2\n  echo \"It is not strict JSON -- it has comments and/or trailing commas.\" >&2\n  echo \"qmk format-json reads with hjson but writes plain JSON, so those would be deleted.\" >&2\n  echo \"If you want that anyway, run it by hand: qmk format-json -i \\\"$f\\\"\" >&2\n  exit 1\nfi\necho \"> qmk format-json -i $f\"\nqmk format-json -i \"$f\"",
+                "qmk-format-json",
+                "${file}"
+            ],
+            "problemMatcher": [],
+            "presentation": { "reveal": "always", "panel": "shared", "clear": true }
         }
     ]
 }
