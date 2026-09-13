@@ -52,6 +52,17 @@
     "[json]": {
         "editor.formatOnSave": false
     },
+    // Fork-local: upstream's "[json]" override above never fires, because the
+    // `files.associations` block maps keyboard.json / info.json / keymap.json /
+    // qmk.json / qmk_module.json to `jsonc`, not `json`. Without this, VS Code's
+    // built-in formatter reflows them on save into something `qmk format-json`
+    // disagrees with -- it can't sort keys QMK's way, and it explodes
+    // primitive-only arrays and layout key objects onto one line each.
+    // Run `qmk format-json -i <file>` by hand instead; note that it parses with
+    // hjson and emits plain JSON, so it deletes any `//` comments in the file.
+    "[jsonc]": {
+        "editor.formatOnSave": false
+    },
     "clangd.arguments": ["--header-insertion=never"],
     // Fork-local: stop the C# Dev Kit extension (ms-dotnettools.csdevkit) from
     // auto-generating qmk_firmware.sln. It scans the workspace for .csproj files,
