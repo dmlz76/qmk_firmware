@@ -24,15 +24,14 @@
         "mousekey": false,
         "nkro": false,
         "pointing_device": true,
-        "space_cadet": false,
-        "console": false
+        "space_cadet": false
     },
     "processor": "atmega16u2",
     "url": "dimitrix.llc",
     "usb": {
         "device_version": "1.0.0",
-        "pid": "0xFFF0",
-        "vid": "0x04D8"
+        "pid": "0xFFF0", // TEMP
+        "vid": "0x04D8" // Microchip
     },
     "layouts": {
         "LAYOUT": {

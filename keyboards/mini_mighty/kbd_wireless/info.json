@@ -23,7 +23,7 @@
     "url": "https://dimitrix.llc",
     "usb": {
         "device_version": "1.0.0",
-        "pid": "0xFFF1",
-        "vid": "0x04D8"
+        "pid": "0xFFF1", // TEMP
+        "vid": "0x04D8" // Microchip
     }
 }

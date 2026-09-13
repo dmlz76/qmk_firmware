@@ -2,49 +2,40 @@
     "manufacturer": "dimitrix llc",
     "keyboard_name": "mini-mighty-dongle",
     "maintainer": "dmlz76",
-    "url": "dimitrix.llc",
-    "usb": {
-        "device_version": "1.0.0",
-        "pid": "0x204B",    // LUFA Adapter Demo
-        "vid": "0x03EB"     // Atmel
-    },
-    "processor": "atmega16u2",
     "bootloader": "atmel-dfu",
     "build": {
         "lto": true
     },
     "features": {
         "bootmagic": false,
+        "encoder": false,
         "extrakey": false,
+        "grave_esc": false,
+        "magic": false,
         "mouse": true,
         "mousekey": false,
         "nkro": false,
         "os_detection": true,
         "pointing_device": false,
-        "encoder": false,
-        "grave_esc": false,
-        "magic": false,
         "space_cadet": false
     },
     "matrix_pins": {
+        "custom": true,
         "direct": [
-            [
-                "NO_PIN"
-            ]
-        ],
-        "custom": true
+            ["NO_PIN"]
+        ]
+    },
+    "processor": "atmega16u2",
+    "url": "dimitrix.llc",
+    "usb": {
+        "device_version": "1.0.0",
+        "pid": "0xFFF2", // TEMP
+        "vid": "0x04D8" // Microchip   
     },
     "layouts": {
         "LAYOUT": {
             "layout": [
-                {
-                    "matrix": [
-                        0,
-                        0
-                    ],
-                    "x": 0,
-                    "y": 0
-                }
+                {"matrix": [0, 0], "x": 0, "y": 0}
             ]
         }
     }
