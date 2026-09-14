@@ -30,7 +30,7 @@
     "url": "dimitrix.llc",
     "usb": {
         "device_version": "1.0.0",
-        "pid": "0xFFF0", // TEMP
+        "pid": "0xE400", // mini-mighty-mouse
         "vid": "0x04D8" // Microchip
     },
     "layouts": {
