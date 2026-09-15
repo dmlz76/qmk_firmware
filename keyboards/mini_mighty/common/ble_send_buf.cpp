@@ -72,7 +72,7 @@ static bool    s_accepted_valid = false; // is s_last_accepted a usable baseline
 static bool    s_ring_backoff   = false; // nRF ring nearly full: skip one drain
 
 #define BLE_RESET_HOLD_MS 100
-#define BLE_RESET_WAIT_MS 150
+#define BLE_RESET_WAIT_MS 200
 
 // BLE reboot is driven as a non-blocking state machine so the keyboard task
 // keeps scanning the matrix (and s_send_buf keeps buffering keystrokes) across
@@ -118,7 +118,7 @@ static uint16_t s_ble_phase_time = 0; // start of the current reset/init phase
 // it only asserts reset and records the phase start; ble_is_ready() advances
 // and completes the sequence on subsequent calls.
 static void ble_start_turn_on() {
-    if (s_ble_state == BLE_STATE_ON || s_ble_state == BLE_STATE_RESETTING || s_ble_state == BLE_STATE_INITIALIZING) {
+    if (s_ble_state == BLE_STATE_ON) {
         return;
     }
 
@@ -132,6 +132,10 @@ static void ble_start_turn_on() {
 #endif
 
     gpio_write_pin_high(s_sleepPin);
+
+    if (s_ble_state == BLE_STATE_RESETTING || s_ble_state == BLE_STATE_INITIALIZING) {
+        return;
+    }
 
     // The nRF comes back with its capture ring empty and its `accepted` counter
     // restarted at 0, so nothing learned before the reset carries across: the
