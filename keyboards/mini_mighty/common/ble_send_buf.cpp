@@ -91,7 +91,7 @@ static bool    s_ring_backoff   = false; // nRF ring nearly full: skip one drain
 #define BLE_STATE_ON 4
 #define BLE_STATE_DISABLED 5     // kill switch OFF: hardware holds the nRF in reset
 
-#ifdef BLE_KILL_SWITCH_ON_RESET_PIN
+#if BLE_KILL_SWITCH_ON_RESET_PIN
 // How often to sample the kill switch, how many agreeing samples a transition
 // needs, and how long to let the line settle once released. See
 // kill_switch_reads_off() for why the release is safe.
@@ -122,7 +122,7 @@ static void ble_start_turn_on() {
         return;
     }
 
-#ifdef BLE_KILL_SWITCH_ON_RESET_PIN
+#if BLE_KILL_SWITCH_ON_RESET_PIN
     // The switch owns the reset line while it is OFF. Driving it here would fight
     // a 1 kOhm pull-down and bring up a radio the user asked to be off; only
     // kill_switch_task() may leave this state.
@@ -181,7 +181,7 @@ static void ble_turn_off() {
         return;
     }
 
-#ifdef BLE_KILL_SWITCH_ON_RESET_PIN
+#if BLE_KILL_SWITCH_ON_RESET_PIN
     // Already off, and harder than this function can manage.
     if (s_ble_state == BLE_STATE_DISABLED) {
         return;
@@ -197,7 +197,7 @@ static void ble_turn_off() {
 #endif
 }
 
-#ifdef BLE_KILL_SWITCH_ON_RESET_PIN
+#if BLE_KILL_SWITCH_ON_RESET_PIN
 // Wireless kill switch, read off the reset line itself.
 //
 // Mouse PCB v1.0.0 gives the battery slide switch a second pole: in the OFF
@@ -684,7 +684,7 @@ void send_buf_init(uint8_t resetPin, uint8_t sleepPin) {
     s_resetPin = resetPin;
     s_sleepPin = sleepPin;
 
-#ifdef BLE_KILL_SWITCH_ON_RESET_PIN
+#if BLE_KILL_SWITCH_ON_RESET_PIN
     // Read the kill switch *before* this pin becomes an output. Out of MCU reset
     // it is hi-Z with no pull, and since the rail came up it has been held high by
     // the nRF's reset pull-up or low by the switch -- so the level here is the
@@ -767,7 +767,7 @@ void power_savings_off() {
 }
 
 bool send_buf_send_one(uint16_t timeout) {
-#ifdef BLE_KILL_SWITCH_ON_RESET_PIN
+#if BLE_KILL_SWITCH_ON_RESET_PIN
     kill_switch_task();
     if (s_ble_state == BLE_STATE_DISABLED) {
         // No radio to drain to. Still run the idle path so the MCU sleep logic
@@ -819,7 +819,7 @@ bool send_buf_send_one(uint16_t timeout) {
 
 bool send_buf_enqueue(const transfer_blob_t *blob) {
     assert(blob);
-#ifdef BLE_KILL_SWITCH_ON_RESET_PIN
+#if BLE_KILL_SWITCH_ON_RESET_PIN
     // Radio is off by hardware, so drop rather than queue. Reporting success is
     // deliberate: the caller's backpressure drain (bluetooth_custom.c) would
     // otherwise spin SEND_BUF_MAX_DRAIN times per report against a queue nothing
@@ -833,7 +833,7 @@ bool send_buf_enqueue(const transfer_blob_t *blob) {
 
 bool send_buf_force_enqueue(const transfer_blob_t *blob) {
     assert(blob);
-#ifdef BLE_KILL_SWITCH_ON_RESET_PIN
+#if BLE_KILL_SWITCH_ON_RESET_PIN
     if (s_ble_state == BLE_STATE_DISABLED) {
         return false; // dropped, but nothing was evicted to do it
     }
