@@ -7,9 +7,7 @@
 #include "debug.h"
 #include "report.h"
 #include "os_detection.h"
-#ifdef MOUSE_ENABLE
 #include "host.h"
-#endif
 #include <assert.h>
 
 #define USE_SPI_IRQ (defined(__AVR__) || defined(__INTELLISENSE__))
@@ -138,33 +136,51 @@ void matrix_init(void) {
 uint8_t matrix_scan(void) {
     bool m_changed = false;
     bool k_changed = false;
+#ifdef EXTRAKEY_ENABLE
+    bool     c_changed = false;
+    bool     s_changed = false;
+    uint16_t usage     = 0;
+#endif
 
+    // One parse for both transports. The IRQ path pulls a whole frame out of
+    // the ring the ISR fills; the polled path shifts it in while CS is
+    // asserted. Only the acquisition differs, so only that is #if'd.
     transfer_blob_t blob;
+    bool            have_blob;
 #if USE_SPI_IRQ
-    if (spi_receive(blob.raw, sizeof(blob.raw))) {
-        dprintf("spi irq received: type %d\n", blob.type); 
-        if (blob.type == 'M') {
-            dprintf("spi irq received: buttons %02X, x %d, y %d, v %d\n", blob.m.buttons, blob.m.x, blob.m.y, blob.m.v);  
-            m_changed = true;
-        } else if (blob.type == 'K') {
-            dprintf("spi irq received: mods %02X, keys %d,%d,%d,%d,%d,%d\n", blob.k.mods, blob.k.keys[0], blob.k.keys[1], blob.k.keys[2], blob.k.keys[3], blob.k.keys[4], blob.k.keys[5]);  
-            k_changed = true;
-        }
-    }
+    have_blob = spi_receive(blob.raw, sizeof(blob.raw));
 #else
-    if (spi_selected())
-    {
+    have_blob = spi_selected();
+    if (have_blob) {
         spi_receive(blob.raw, sizeof(blob.raw));
-        dprintf("spi irq received: type %d\n", blob.type); 
-        if (blob.type == 'M') {
-            dprintf("spi irq received: buttons %02X, x %d, y %d, v %d\n", blob.m.buttons, blob.m.x, blob.m.y, blob.m.v);  
-            m_changed = true;
-        } else if (blob.type == 'K') {
-            dprintf("spi irq received: mods %02X, keys %d,%d,%d,%d,%d,%d\n", blob.k.mods, blob.k.keys[0], blob.k.keys[1], blob.k.keys[2], blob.k.keys[3], blob.k.keys[4], blob.k.keys[5]);  
-            k_changed = true;
-        }
     }
 #endif
+
+    if (have_blob) {
+        dprintf("spi received: type %d\n", blob.type);
+        switch (blob.type) {
+            case 'M':
+                dprintf("spi received: buttons %02X, x %d, y %d, v %d\n", blob.m.buttons, blob.m.x, blob.m.y, blob.m.v);
+                m_changed = true;
+                break;
+            case 'K':
+                dprintf("spi received: mods %02X, keys %d,%d,%d,%d,%d,%d\n", blob.k.mods, blob.k.keys[0], blob.k.keys[1], blob.k.keys[2], blob.k.keys[3], blob.k.keys[4], blob.k.keys[5]);
+                k_changed = true;
+                break;
+#ifdef EXTRAKEY_ENABLE
+            case 'C':
+            case 'S':
+                usage = (uint16_t)blob.e.usage_lo | ((uint16_t)blob.e.usage_hi << 8);
+                dprintf("spi received: extra usage %04X\n", usage);
+                if (blob.type == 'C') {
+                    c_changed = true;
+                } else {
+                    s_changed = true;
+                }
+                break;
+#endif
+        }
+    }
 
     if (k_changed) {
         os_variant_t os = detected_host_os();
@@ -196,10 +212,28 @@ uint8_t matrix_scan(void) {
     }
 #endif
 
+#ifdef EXTRAKEY_ENABLE
+    // No local state to mirror here the way keyboard_report/mouse_report do:
+    // the extra-key protocol is one usage at a time, and usage 0 is the
+    // release of whatever was held. host_consumer_send()/host_system_send()
+    // dedupe against the previous usage themselves, so forward every blob
+    // as-is, zeros included.
+    if (c_changed) {
+        host_consumer_send(usage);
+    }
+    if (s_changed) {
+        host_system_send(usage);
+    }
+#endif
+
     // This *must* be called for correct keyboard behavior
     matrix_scan_kb();
 
-    return m_changed | k_changed;
+    uint8_t changed = m_changed | k_changed;
+#ifdef EXTRAKEY_ENABLE
+    changed |= c_changed | s_changed;
+#endif
+    return changed;
 }
 
 __attribute__((weak)) void matrix_init_kb(void) { matrix_init_user(); }
