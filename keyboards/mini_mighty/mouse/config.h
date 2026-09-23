@@ -31,6 +31,21 @@
 // Leave off for normal builds (output auto-selects USB when enumerated).
 // #define FORCE_OUTPUT_BLUETOOTH
 
+// Debug only: take the nRF out of the picture for a power measurement. Parks
+// ble_send_buf.cpp in BLE_STATE_DISABLED at boot and never leaves it -- no SPI
+// transactions, no blobs queued, no reset/init window -- so what the meter reads
+// is the AVR, the sensor and the rails, with the radio subtracted. The MCU sleep
+// path still runs, so idle current stays comparable to a normal build. Wireless
+// input is dead in this build, by design; uncomment, measure, then comment back.
+//
+// Pairs with BLE_FORCE_DISABLED_HOLD_RESET (default 1 in ble_send_buf.cpp):
+//   1 - nRF held in reset. Costs ~250 uA at the rail, because the AVR sinks the
+//       module's own ~13 kOhm reset pull-up the whole time -- expect that offset
+//       and don't go hunting it.
+//   0 - reset released, so the nRF boots and idles on its own; isolates the AVR
+//       side of the link (SPI, queueing) without the pull-up current.
+// #define BLE_FORCE_DISABLED 1
+
 // Watchdog period used for MCU power-down sleeps. Async wake (PCINT0/PCINT1)
 // handles button/encoder/motion events, so this is not the latency for normal
 // input -- but it IS what a *missed* wake costs: the MCU stays down for the full
