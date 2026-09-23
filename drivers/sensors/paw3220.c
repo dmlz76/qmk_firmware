@@ -8,6 +8,7 @@
 #include "progmem.h"
 #include "pointing_device_internal.h"
 
+#define FORCE_POWER_DOWN 0
 #define MANUAL_POWER_ON_RESET 0
 
 #define REG_PID1 0x00
@@ -28,6 +29,7 @@
 #define REG_SPI_MODE 0x26
 #define REG_LED_OPTION 0x5C
 
+#if !FORCE_POWER_DOWN
 // Datasheet §8.1.1.1 — the initialization sequence for 3-wire SPI / High Voltage
 // Segment (VDD = 2.1 to 3.6 V), which the datasheet calls "necessary ... to ensure
 // the correct operations and the best tracking performance". Everything here lives
@@ -66,6 +68,7 @@ static const uint8_t PROGMEM paw3220_init_seq[] = {
     0x7F,              0x00, // back to bank 0
     REG_WRITE_PROTECT, 0x00, // enable write protect
 };
+#endif // #if !FORCE_POWER_DOWN
 
 const pointing_device_driver_t paw3220_pointing_device_driver = {
     .init       = paw3220_init,
@@ -169,6 +172,11 @@ void paw3220_init(void) {
     paw3220_deselect();
     wait_us(1);
 
+#if FORCE_POWER_DOWN
+    paw3220_write_reg(REG_CONFIG, 0x08); // power down
+
+#else // #if FORCE_POWER_DOWN
+
 #if MANUAL_POWER_ON_RESET
     paw3220_write_reg(REG_CONFIG, 0x80); // full reset
     wait_us(100);
@@ -193,6 +201,8 @@ void paw3220_init(void) {
     uint8_t led_option = paw3220_read_reg(REG_LED_OPTION);
     pd_dprintf("LED OPTION: 0x%02X\n", led_option);
 #endif
+
+#endif // #else #if FORCE_POWER_DOWN
 }
 
 
