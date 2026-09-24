@@ -29,7 +29,30 @@
 #define REG_SPI_MODE 0x26
 #define REG_LED_OPTION 0x5C
 
-#if !FORCE_POWER_DOWN
+// LED_Option (0x5C), written by the init sequence below.
+//
+// Current-source mode is not optional on this hardware. Through mouse PCB
+// v0.14.0 D3's anode ties straight to VCC with no series resistor -- RLED (R16,
+// 100R) only arrived in v15 -- so current-switch mode, which is the power-on
+// default (0xCA), puts the IR LED across the rail through the LED pin's ~10 Ohm
+// switch (§9.2.20, and VOL = 100 mV @ IOL = 10 mA). Nothing then limits ILED but
+// the 50 mA ILEDS maximum.
+//
+// Under FORCE_POWER_DOWN the current is asked for as 0 mA rather than 4. That
+// build exists to subtract the sensor from a power measurement. §5.2.2 promises
+// only that Power-Down retains the register settings, never that it gates the
+// LED driver, and ILED returns through the LED pin rather than VDD, so the 5 µA
+// IDDPD spec does not answer the question either. Asking for 0 mA does not
+// depend on the answer.
+//
+// Note 0xD_, not 0x1_: bits [7:6] are Reserved and power up as 1, and only bits
+// [5:4] (mode) and [3:0] (ILED = n × 1 mA) are ours to set.
+#if FORCE_POWER_DOWN
+#    define PAW3220_LED_OPTION_VALUE 0xD0 // current source mode, 0 mA
+#else
+#    define PAW3220_LED_OPTION_VALUE 0xD4 // current source mode, 4 mA
+#endif
+
 // Datasheet §8.1.1.1 — the initialization sequence for 3-wire SPI / High Voltage
 // Segment (VDD = 2.1 to 3.6 V), which the datasheet calls "necessary ... to ensure
 // the correct operations and the best tracking performance". Everything here lives
@@ -40,18 +63,16 @@
 //          "is not set properly, the chip would consume extra power due to the
 //          current leakage of the internal regulator" — it powers up correct for
 //          this segment, but the vendor sequence writes it anyway, so we do too.
-//   0x5C = 0xD4 is current-source mode at 4 mA. Current-source is not optional on
-//          this hardware: D3's anode ties straight to VCC with no series resistor
-//          (mini_mighty_mouse.kicad_sch), so current-switch mode — the power-on
-//          default — has nothing limiting ILED. Note 0xD4, not 0x14: bits [7:6] are
-//          Reserved and power up as 1, and only bits [5:4] (mode) and [3:0]
-//          (ILED = n × 1 mA) are ours to set.
+//   0x5C is the LED current limit, and on this hardware it is the only one there
+//          is. See PAW3220_LED_OPTION_VALUE above -- it must be written on every
+//          build, FORCE_POWER_DOWN included, which is why this sequence is no
+//          longer compiled out for that one.
 // 0x42-0x4A / 0x64 / 0x79 are undocumented tuning registers in bank 1, hence the
 // 0x7F bank select around them. Values are transcribed from the datasheet verbatim.
 static const uint8_t PROGMEM paw3220_init_seq[] = {
     REG_WRITE_PROTECT, 0x5A, // disable write protect
     0x4B,              0x00, // High Voltage Segment (VDD = 2.1 to 3.6 V)
-    REG_LED_OPTION,    0xD4, // current source mode, 4 mA
+    REG_LED_OPTION,    PAW3220_LED_OPTION_VALUE,
     REG_CPI_X,         0x1A,
     REG_CPI_Y,         0x1C,
     0x7F,              0x01, // select bank 1
@@ -68,7 +89,6 @@ static const uint8_t PROGMEM paw3220_init_seq[] = {
     0x7F,              0x00, // back to bank 0
     REG_WRITE_PROTECT, 0x00, // enable write protect
 };
-#endif // #if !FORCE_POWER_DOWN
 
 const pointing_device_driver_t paw3220_pointing_device_driver = {
     .init       = paw3220_init,
@@ -172,11 +192,6 @@ void paw3220_init(void) {
     paw3220_deselect();
     wait_us(1);
 
-#if FORCE_POWER_DOWN
-    paw3220_write_reg(REG_CONFIG, 0x08); // power down
-
-#else // #if FORCE_POWER_DOWN
-
 #if MANUAL_POWER_ON_RESET
     paw3220_write_reg(REG_CONFIG, 0x80); // full reset
     wait_us(100);
@@ -186,12 +201,21 @@ void paw3220_init(void) {
         paw3220_write_reg(pgm_read_byte(&paw3220_init_seq[i]), pgm_read_byte(&paw3220_init_seq[i + 1]));
     }
 
+    // Address 0x06 is below 0x10, so Write_Protect does not apply and these can sit
+    // outside the sequence. Both keep the 0x11 power-on value rather than writing a
+    // bare bit: Configuration bits 4 and 0 are Reserved and power up as 1, so
+    // assigning 0x20/0x08 alone would set the wanted bit and write zeros over both
+    // of them.
+#if FORCE_POWER_DOWN
+    // Power down (PD_Enh, bit 3), ~5 µA, register settings retained (§5.2.2). The
+    // LED is already dark by PAW3220_LED_OPTION_VALUE, so this does not have to
+    // gate the driver to take the sensor out of a power measurement.
+    paw3220_write_reg(REG_CONFIG, 0x11 | 0x08);
+#else
     // Enable Sleep3, the deepest of the three automatic power-saving modes (8 µA vs
-    // 30 µA in Sleep1), which is the one mode disabled by default. 0x31, not 0x20:
-    // Configuration powers up at 0x11 and bits 4 and 0 are Reserved — a bare 0x20
-    // sets Slp3_Enh but also writes zeros over both of them. Address 0x06 is below
-    // 0x10, so Write_Protect does not apply and this can sit outside the sequence.
+    // 30 µA in Sleep1), which is the one mode disabled by default.
     paw3220_write_reg(REG_CONFIG, 0x11 | 0x20);
+#endif
 
 #ifdef POINTING_DEVICE_DEBUG
     uint8_t pid1 = paw3220_read_reg(REG_PID1);
@@ -201,8 +225,6 @@ void paw3220_init(void) {
     uint8_t led_option = paw3220_read_reg(REG_LED_OPTION);
     pd_dprintf("LED OPTION: 0x%02X\n", led_option);
 #endif
-
-#endif // #else #if FORCE_POWER_DOWN
 }
 
 
