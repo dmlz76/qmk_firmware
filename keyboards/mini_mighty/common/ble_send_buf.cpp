@@ -710,17 +710,21 @@ void setup_power_savings() {
     ACSR &= ~_BV(ACIE);
     ACSR |= _BV(ACD);
 
-    // Power Reduction Register — clock-gate unused peripherals.
-    // Timer0 (system tick) and SPI (BLE) must stay enabled.
-#if defined(PRR0)
-    PRR0 |= _BV(PRUSART1) | _BV(PRTIM1);
-#elif defined(PRR)
-    PRR |= _BV(PRUSART1) | _BV(PRTIM1);
-#endif
+    // Power Reduction Registers — clock-gate unused peripherals.
+    // Timer0 (system tick), SPI (BLE) and USB must stay enabled. PRUSART1 is in
+    // PRR1 on both the 16U2 and the 32U4; in PRR0, bit 0 is PRADC on the 32U4
+    // and reserved on the 16U2. bootloader_jump()'s UCSR1B = 0 is ignored while
+    // USART1 is gated, and harmless: USART1 is never enabled.
+    PRR0 |= _BV(PRTIM1);
+    PRR1 |= _BV(PRUSART1);
 
 #ifdef UNCONNECTED_PINS
-    // Pull up unused pins to prevent floating inputs drawing current.
-    const pin_t unconnected_pins[] = UNCONNECTED_PINS;
+    // Pull up unused pins to prevent floating inputs drawing current. static +
+    // full unroll lets every pin fold to a constant cbi/sbi pair; a plain local
+    // array costs ~130 B of flash plus SRAM for a runtime copy and generic
+    // port-address math, which the near-full 16U2 can't spare.
+    static const pin_t unconnected_pins[] = UNCONNECTED_PINS;
+#    pragma GCC unroll 32
     for (uint8_t i = 0; i < (sizeof(unconnected_pins) / sizeof(pin_t)); i++) {
         gpio_set_pin_input_high(unconnected_pins[i]);
     }
@@ -730,6 +734,10 @@ void setup_power_savings() {
 void send_buf_init(uint8_t resetPin, uint8_t sleepPin) {
     s_resetPin = resetPin;
     s_sleepPin = sleepPin;
+
+    // Ahead of the early returns below: none of it depends on BLE, and a
+    // BLE_FORCE_DISABLED build or a kill switch at OFF must not skip it.
+    setup_power_savings();
 
 #if BLE_FORCE_DISABLED
     // Debug build: never bring the nRF up. Park in BLE_STATE_DISABLED before the
@@ -794,8 +802,6 @@ void send_buf_init(uint8_t resetPin, uint8_t sleepPin) {
 
     gpio_set_pin_output(s_resetPin);
     gpio_set_pin_output(s_sleepPin);
-
-    // setup_power_savings();
 
     spi_init();
 

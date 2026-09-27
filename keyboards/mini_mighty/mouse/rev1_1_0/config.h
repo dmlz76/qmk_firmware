@@ -11,8 +11,7 @@
 // resets still start the app. The pin must stay a plain input: the pull-up that
 // setup_power_savings() enables on every UNCONNECTED_PINS entry would fight R1
 // and draw ~55-110 uA for as long as the app runs, about double the sleep
-// budget. That call is commented out today, so this list is inert for now --
-// the omission guards against re-enabling it. Never drive D7 high either.
+// budget. Never drive D7 high either.
 #define UNCONNECTED_PINS { D0, D1, D2, D3, D6 }
 
 // Same DPDT wireless kill switch as v1.0.0: its second pole grounds the nRF's
