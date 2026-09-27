@@ -31,4 +31,4 @@ See the [build environment setup](https://docs.qmk.fm/#/getting_started_build_to
 Enter the bootloader:
 
 * **Bootmagic reset**: Hold down the ESC key and plug in the keyboard
-* **Physical reset pad**: Briefly short the "RESET" pad on the back of the PCB
+* **Hardware (for dead firmware)**: Hold the column-side pin of any Col_7 switch (F7, 7, U, J or N) to GND, briefly short the "RESET" pad, then release the switch pin. Pressing those keys does nothing: the matrix diodes block the path to ground. HWB (PE2) doubles as Col_7 and has no pull-up, so shorting RESET alone usually restarts the firmware but can occasionally land in DFU; power-cycle to leave it.
