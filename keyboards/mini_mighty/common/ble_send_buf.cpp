@@ -868,6 +868,13 @@ bool send_buf_send_one(uint16_t timeout) {
 
     transfer_blob_t blob;
     if (!s_send_buf.peek(blob)) {
+        // Advance a reboot in flight even with nothing queued. Usually a blob is
+        // what starts one (power_savings_off() below), and the ble_is_ready() after
+        // it drives the phases. kill_switch_task() starts one with the queue
+        // empty, though, and on USB nothing is ever queued, so without this the
+        // reboot stayed in BLE_STATE_RESETTING with ~RESET held low until USB
+        // was unplugged. A flip back to ON never brought the radio up.
+        ble_is_ready();
         power_savings_on();
         return false;
     }
