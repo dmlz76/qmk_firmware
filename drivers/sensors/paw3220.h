@@ -50,7 +50,7 @@ typedef struct {
 
 extern const pointing_device_driver_t paw3220_pointing_device_driver;
 
-void paw3220_init(void);
+bool paw3220_init(void);
 report_paw3220_t paw3220_read(void);
 void paw3220_set_cpi(uint16_t cpi);
 uint16_t paw3220_get_cpi(void);

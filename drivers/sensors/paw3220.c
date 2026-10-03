@@ -181,7 +181,7 @@ report_paw3220_t paw3220_read(void) {
     return data;
 }
 
-void paw3220_init(void) {
+bool paw3220_init(void) {
     gpio_set_pin_output(PAW3220_SCLK_PIN);
     gpio_set_pin_output(PAW3220_SDIO_PIN);
     gpio_set_pin_output(PAW3220_CS_PIN);
@@ -225,6 +225,8 @@ void paw3220_init(void) {
     uint8_t led_option = paw3220_read_reg(REG_LED_OPTION);
     pd_dprintf("LED OPTION: 0x%02X\n", led_option);
 #endif
+
+    return true;
 }
 
 
