@@ -712,11 +712,21 @@ void setup_power_savings() {
 
     // Power Reduction Registers — clock-gate unused peripherals.
     // Timer0 (system tick), SPI (BLE) and USB must stay enabled. PRUSART1 is in
-    // PRR1 on both the 16U2 and the 32U4; in PRR0, bit 0 is PRADC on the 32U4
-    // and reserved on the 16U2. bootloader_jump()'s UCSR1B = 0 is ignored while
-    // USART1 is gated, and harmless: USART1 is never enabled.
-    PRR0 |= _BV(PRTIM1);
-    PRR1 |= _BV(PRUSART1);
+    // PRR1 on both the 16U2 and the 32U4. bootloader_jump()'s UCSR1B = 0 is
+    // ignored while USART1 is gated, and harmless: USART1 is never enabled.
+    uint8_t prr0 = _BV(PRTIM1);
+    uint8_t prr1 = _BV(PRUSART1);
+#if defined(PRTWI) && defined(PRADC) && defined(PRTIM3) && defined(PRTIM4)
+    // The 32U4 has four more blocks the 16U2 lacks, all unused here: no
+    // vector or register access to TWI, the ADC, Timer3 or Timer4 in any
+    // kbd_wireless image. TWI's pins (D0/D1) are matrix lines. ADEN resets to
+    // 0, so the ADC is already off, which PRADC requires. Gating saves
+    // active-mode current only, since power-down stops these clocks anyway.
+    prr0 |= _BV(PRTWI) | _BV(PRADC);
+    prr1 |= _BV(PRTIM3) | _BV(PRTIM4);
+#endif
+    PRR0 |= prr0;
+    PRR1 |= prr1;
 
 #ifdef UNCONNECTED_PINS
     // Pull up unused pins to prevent floating inputs drawing current. static +
