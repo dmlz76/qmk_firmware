@@ -49,6 +49,11 @@ enum hid_report_ids {
 // hid_report_ids above (which only enumerates shared-endpoint reports up to REPORT_ID_COUNT).
 #define REPORT_ID_PLOVER_HID 0x50
 
+// Fork-local (HID_BATTERY_ENABLE): the mouse's Battery Strength report on the shared endpoint.
+// Kept out of enum hid_report_ids for the same reason as Plover: that enum sizes ChibiOS's
+// per-report-ID tables, and this report is LUFA-only.
+#define REPORT_ID_BATTERY 0x42 // 'B'
+
 /* Mouse buttons */
 #define MOUSE_BTN_MASK(n) (1 << (n))
 enum mouse_buttons {
@@ -197,6 +202,19 @@ typedef struct {
     uint8_t  report_id;
     uint32_t usage;
 } PACKED report_programmable_button_t;
+
+#ifdef HID_BATTERY_ENABLE
+// Battery Strength, 0-100 %. HID_BATTERY_UNKNOWN is outside the declared logical range, which
+// hosts drop rather than display (Linux's hidinput_update_battery() range-checks it), so it can
+// fill the field without claiming a level. 0 is no good for that: 6.x kernels drop a 0, but
+// current mainline only drops it on the Digitizer page and shows this one as 0 %.
+#    define HID_BATTERY_UNKNOWN 0xFF
+
+typedef struct {
+    uint8_t report_id; // REPORT_ID_BATTERY
+    uint8_t level;
+} PACKED report_battery_t;
+#endif
 
 typedef struct {
     uint8_t report_id; // REPORT_ID_PLOVER_HID

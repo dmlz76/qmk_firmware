@@ -32,6 +32,10 @@ typedef struct {
 #ifdef RAW_ENABLE
     void (*send_raw_hid)(uint8_t *, uint8_t);
 #endif
+#ifdef HID_BATTERY_ENABLE
+    void (*send_keyboard_battery)(uint8_t);
+    void (*send_mouse_battery)(uint8_t);
+#endif
 } host_driver_t;
 
 void send_joystick(report_joystick_t *report);

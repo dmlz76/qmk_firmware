@@ -258,6 +258,22 @@ void host_consumer_send(uint16_t usage) {
     (*driver->send_extra)(&report);
 }
 
+#ifdef HID_BATTERY_ENABLE
+void host_keyboard_battery_send(uint8_t level) {
+    host_driver_t *driver = host_get_active_driver();
+    if (!driver || !driver->send_keyboard_battery) return;
+
+    (*driver->send_keyboard_battery)(level);
+}
+
+void host_mouse_battery_send(uint8_t level) {
+    host_driver_t *driver = host_get_active_driver();
+    if (!driver || !driver->send_mouse_battery) return;
+
+    (*driver->send_mouse_battery)(level);
+}
+#endif
+
 #ifdef JOYSTICK_ENABLE
 void host_joystick_send(joystick_t *joystick) {
     if (!driver) return;

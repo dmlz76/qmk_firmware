@@ -16,6 +16,7 @@
 #endif
 
 #include "transfer_blob.h"
+#include "peer_battery.h"
 
 #define RST_PIN D4
 
@@ -179,6 +180,12 @@ uint8_t matrix_scan(void) {
                 }
                 break;
 #endif
+            case 'B':
+                // Not input, so it doesn't count as a change: that return value is what
+                // wakes a suspended host.
+                dprintf("spi received: battery peer %d kind %c level %d\n", blob.b.peer, blob.b.kind, blob.b.level);
+                peer_battery_update(blob.b.peer, blob.b.kind, blob.b.level);
+                break;
         }
     }
 
@@ -225,6 +232,8 @@ uint8_t matrix_scan(void) {
         host_system_send(usage);
     }
 #endif
+
+    peer_battery_task();
 
     // This *must* be called for correct keyboard behavior
     matrix_scan_kb();

@@ -79,6 +79,10 @@ static void send_extra(report_extra_t *report);
 #ifdef RAW_ENABLE
 static void send_raw_hid(uint8_t *data, uint8_t length);
 #endif
+#ifdef HID_BATTERY_ENABLE
+static void send_keyboard_battery(uint8_t level);
+static void send_mouse_battery(uint8_t level);
+#endif
 
 host_driver_t lufa_driver = {
     .keyboard_leds = usb_device_state_get_leds,
@@ -88,6 +92,10 @@ host_driver_t lufa_driver = {
     .send_extra    = send_extra,
 #ifdef RAW_ENABLE
     .send_raw_hid = send_raw_hid,
+#endif
+#ifdef HID_BATTERY_ENABLE
+    .send_keyboard_battery = send_keyboard_battery,
+    .send_mouse_battery    = send_mouse_battery,
 #endif
 };
 
@@ -413,9 +421,18 @@ void EVENT_USB_Device_ControlRequest(void) {
                 // Interface
                 switch (USB_ControlRequest.wIndex) {
                     case KEYBOARD_INTERFACE:
+#ifndef HID_BATTERY_ENABLE
                         // TODO: test/check
                         ReportData = (uint8_t *)&keyboard_report_sent;
                         ReportSize = sizeof(keyboard_report_sent);
+#endif
+                        // With the battery in byte 1, answer with nothing, as for every other
+                        // interface. Linux GET_REPORTs a battery's report to read it before the
+                        // first input report arrives. Kernels before 7.3 then read the byte after
+                        // the report ID, and this report has no ID, so they would take the mods
+                        // byte (0 % with nothing held). A failed read stays "unknown" until the
+                        // first real report, so callers should host_keyboard_battery_send() as
+                        // soon as USB is configured.
                         break;
                 }
 
@@ -513,6 +530,14 @@ void EVENT_USB_Device_ControlRequest(void) {
  * Host driver
  ******************************************************************************/
 
+#ifdef HID_BATTERY_ENABLE
+// The keyboard's Battery Strength. It has no report of its own: it lives in the keyboard report's
+// reserved byte (see KeyboardReport in usb_descriptor.c), so it is stamped onto every report here,
+// whoever sends it. Stamping in the caller instead would let a report from core (clear_keyboard()
+// on wake, say) put that byte's usual 0 on the wire, which recent kernels show as 0 %.
+static uint8_t keyboard_battery = HID_BATTERY_UNKNOWN;
+#endif
+
 /** \brief Send Keyboard
  *
  * FIXME: Needs doc
@@ -520,13 +545,38 @@ void EVENT_USB_Device_ControlRequest(void) {
 static void send_keyboard(report_keyboard_t *report) {
     /* If we're in Boot Protocol, don't send any report ID or other funky fields */
     if (usb_device_state_get_protocol() == USB_PROTOCOL_BOOT) {
+#ifdef HID_BATTERY_ENABLE
+        // The boot report has no descriptor behind it, and its byte 1 is reserved.
+        report->reserved = 0;
+#endif
         send_report(KEYBOARD_IN_EPNUM, &report->mods, 8);
     } else {
+#ifdef HID_BATTERY_ENABLE
+        report->reserved = keyboard_battery;
+#endif
         send_report(KEYBOARD_IN_EPNUM, report, KEYBOARD_REPORT_SIZE);
     }
 
     keyboard_report_sent = *report;
 }
+
+#ifdef HID_BATTERY_ENABLE
+static void send_keyboard_battery(uint8_t level) {
+    keyboard_battery = level;
+
+    // Resend what the host already holds, so the keys don't change; only the battery byte does.
+    report_keyboard_t report = keyboard_report_sent;
+    send_keyboard(&report);
+}
+
+static void send_mouse_battery(uint8_t level) {
+    report_battery_t report = {
+        .report_id = REPORT_ID_BATTERY,
+        .level     = level,
+    };
+    send_report(SHARED_IN_EPNUM, &report, sizeof(report));
+}
+#endif
 
 /** \brief Send NKRO
  *

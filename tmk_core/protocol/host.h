@@ -46,6 +46,10 @@ void    host_consumer_send(uint16_t usage);
 void    host_programmable_button_send(uint32_t data);
 void    host_plover_hid_send(report_plover_hid_t *report);
 void    host_raw_hid_send(uint8_t *data, uint8_t length);
+#ifdef HID_BATTERY_ENABLE
+void host_keyboard_battery_send(uint8_t level);
+void host_mouse_battery_send(uint8_t level);
+#endif
 
 uint16_t host_last_system_usage(void);
 uint16_t host_last_consumer_usage(void);

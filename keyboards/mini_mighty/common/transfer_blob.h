@@ -42,10 +42,25 @@ typedef union {
                 uint8_t usage_lo;
                 uint8_t usage_hi;
             } e;
+            // Battery level of one peripheral ('B'). The peripheral's nRF makes these
+            // itself from its own SAADC reading, in GZLL mode only (over BLE the host reads
+            // BAS directly), so no AVR ever sends one; only the dongle receives them. The
+            // dongle reports the lowest level per kind to the host as HID Battery Strength.
+            struct {
+                uint8_t kind;  // 'M' or 'K': which of the dongle's two batteries this counts toward.
+                uint8_t peer;  // Which peripheral: its GZLL pipe, stamped by the dongle's nRF on
+                               // receipt. Peripherals send 0.
+                uint8_t level; // 0..100 %, or TRANSFER_BATTERY_NONE.
+            } b;
         };
     };
     uint8_t raw[8];
 } transfer_blob_t;
+
+// 'B' level when there is no cell to measure: the cutoff switch is off or no cell is fitted,
+// so the peripheral is running on external power. It drops out of the dongle's minimum
+// rather than reporting as empty.
+#define TRANSFER_BATTERY_NONE 0xFF
 
 TRANSFER_STATIC_ASSERT(sizeof(transfer_blob_t) == 8, "blob frame must stay 8 bytes");
 TRANSFER_STATIC_ASSERT(offsetof(transfer_blob_t, k.mods) == 1, "payload must start at offset 1; a padded union would break the wire format");

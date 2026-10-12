@@ -86,10 +86,25 @@ const USB_Descriptor_HIDReport_Datatype_t PROGMEM KeyboardReport[] = {
         HID_RI_REPORT_COUNT(8, 0x08),
         HID_RI_REPORT_SIZE(8, 0x01),
         HID_RI_INPUT(8, HID_IOF_DATA | HID_IOF_VARIABLE | HID_IOF_ABSOLUTE),
+#ifdef HID_BATTERY_ENABLE
+        // Battery Strength (1 byte), in the reserved byte (fork-local). It lives here rather
+        // than in a report of its own because Linux kernels before 7.1 keep one battery per
+        // interface: a keyboard battery on the shared endpoint would make the mouse's there
+        // flip between the two values. Boot hosts ignore byte 1, and send_keyboard() zeroes
+        // it in Boot protocol. Out-of-range is "no reading" (HID_BATTERY_UNKNOWN).
+        HID_RI_USAGE_PAGE(8, 0x06),    // Generic Device Controls
+        HID_RI_USAGE(8, 0x20),         // Battery Strength
+        HID_RI_LOGICAL_MINIMUM(8, 0),
+        HID_RI_LOGICAL_MAXIMUM(8, 100),
+        HID_RI_REPORT_COUNT(8, 0x01),
+        HID_RI_REPORT_SIZE(8, 0x08),
+        HID_RI_INPUT(8, HID_IOF_DATA | HID_IOF_VARIABLE | HID_IOF_ABSOLUTE | HID_IOF_NULLSTATE),
+#else
         // Reserved (1 byte)
         HID_RI_REPORT_COUNT(8, 0x01),
         HID_RI_REPORT_SIZE(8, 0x08),
         HID_RI_INPUT(8, HID_IOF_CONSTANT),
+#endif
         // Keycodes (6 bytes)
         HID_RI_USAGE_PAGE(8, 0x07),    // Keyboard/Keypad
         HID_RI_USAGE_MINIMUM(8, 0x00),
@@ -448,6 +463,31 @@ const USB_Descriptor_HIDReport_Datatype_t PROGMEM SharedReport[] = {
         HID_RI_REPORT_COUNT(8, 0x01),
         HID_RI_REPORT_SIZE(8, 0x03),
         HID_RI_OUTPUT(8, HID_IOF_CONSTANT),
+    HID_RI_END_COLLECTION(0),
+#endif
+
+#ifdef HID_BATTERY_ENABLE
+    // Fork-local: one Battery Strength on each of two interfaces, the keyboard's (see
+    // KeyboardReport) and this one, where the mouse lives.
+#    if !defined(PROTOCOL_LUFA)
+#        error "HID_BATTERY_ENABLE is implemented for LUFA only"
+#    endif
+#    if !defined(MOUSE_SHARED_EP) || defined(KEYBOARD_SHARED_EP)
+#        error "HID_BATTERY_ENABLE needs the mouse on the shared endpoint and the keyboard off it"
+#    endif
+    // A top-level collection of its own, not a field of the Mouse collection: OS mouse drivers
+    // parse every report in their collection, and one that carries no buttons could read as a
+    // release mid-drag. Hosts with no use for this collection ignore it.
+    HID_RI_USAGE_PAGE(8, 0x06),           // Generic Device Controls
+    HID_RI_USAGE(8, 0x01),                // Background/Nonuser Controls
+    HID_RI_COLLECTION(8, 0x01),           // Application
+        HID_RI_REPORT_ID(8, REPORT_ID_BATTERY),
+        HID_RI_USAGE(8, 0x20),            // Battery Strength
+        HID_RI_LOGICAL_MINIMUM(8, 0),
+        HID_RI_LOGICAL_MAXIMUM(8, 100),
+        HID_RI_REPORT_COUNT(8, 1),
+        HID_RI_REPORT_SIZE(8, 8),
+        HID_RI_INPUT(8, HID_IOF_DATA | HID_IOF_VARIABLE | HID_IOF_ABSOLUTE | HID_IOF_NULLSTATE),
     HID_RI_END_COLLECTION(0),
 #endif
 
