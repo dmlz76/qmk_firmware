@@ -71,13 +71,13 @@ static uint8_t s_last_accepted  = 0;     // `accepted` read on the last armed tr
 static bool    s_accepted_valid = false; // is s_last_accepted a usable baseline?
 static bool    s_ring_backoff   = false; // nRF ring nearly full: skip one drain
 
-#define BLE_RESET_HOLD_MS 100
-#define BLE_RESET_WAIT_MS 200
+#define BLE_RESET_HOLD_MS 10
+#define BLE_RESET_WAIT_MS 100
 
 // BLE reboot is driven as a non-blocking state machine so the keyboard task
 // keeps scanning the matrix (and s_send_buf keeps buffering keystrokes) across
 // the nRF's reset/init window — BLE_RESET_HOLD_MS + BLE_RESET_WAIT_MS above,
-// 250 ms as currently tuned.
+// 110 ms as currently tuned.
 //
 // Do not make this blocking again. It used to busy-wait, and a key pressed
 // during a wake-from-suspend reboot was lost outright: with the main loop
