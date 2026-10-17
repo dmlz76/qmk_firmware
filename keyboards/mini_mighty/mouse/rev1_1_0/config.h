@@ -18,3 +18,8 @@
 // ~RESET line through 1 kOhm in the OFF position. See kill_switch_task() in
 // common/ble_send_buf.cpp.
 #define BLE_KILL_SWITCH_ON_RESET_PIN 1
+
+// Fitted with the 8 MHz CSTNE8M00GH5C000R0 (see common/mcu_clock.h). Comment out
+// for a board still carrying the 16 MHz CSTNE16M0V530000R0.
+#define MCU_RESONATOR_8MHZ
+#include "mcu_clock.h"

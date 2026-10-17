@@ -21,7 +21,7 @@ extern "C" {
 
 #define LSBFIRST false
 #define SPI_MODE 0
-#define SCK_DIVISOR 8 // 2MHz SCK/16MHz CPU
+#define SCK_DIVISOR (F_CPU / 2000000UL) // 2MHz SCK at any F_CPU: 8 at 16MHz, 4 at 8MHz
 
 #define PostSelectWait 250      /* microseconds */
 #define BackOff 100             /* microseconds */
