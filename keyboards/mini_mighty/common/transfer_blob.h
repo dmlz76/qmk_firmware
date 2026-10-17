@@ -102,3 +102,33 @@ typedef union {
 // the tail of the frame reads the over-read character, longer and it would cost
 // real clocks. The nRF has the matching STATIC_ASSERT.
 TRANSFER_STATIC_ASSERT(sizeof(transfer_status_t) == sizeof(transfer_blob_t), "status frame must match the blob frame");
+
+// KEEP IN SYNC WITH THE nRF FIRMWARE (same file as above)
+//
+// Integrity byte on the dongle's internal hop only. The dongle's nRF (SPIM master) follows
+// every blob it forwards with transfer_blob_crc8() of it, inside the same CS assertion, so
+// the dongle's AVR (SPI slave) takes TRANSFER_DONGLE_FRAME_LEN bytes per frame and drops a
+// frame whose CRC doesn't match. Neither the radio link nor the peripherals' hop (AVR
+// master -> nRF SPIS, blob + status) carries it, so nothing changes there.
+//
+// CRC-8/I-432-1 (the ITU-T I.432.1 / ATM HEC CRC): poly 0x07, init 0x00, MSB first, no
+// reflection, xorout 0x55; check("123456789") = 0xA1. Over a 9-byte frame it catches every
+// 1-, 2- and 3-bit error, every odd number of flipped bits and every burst up to 8 bits
+// (Hamming distance 4 holds up to 119 data bits). The nonzero xorout matters: with it, an
+// all-zero frame (MOSI stuck low) fails the check instead of passing as type 0.
+#define TRANSFER_DONGLE_FRAME_LEN (sizeof(transfer_blob_t) + 1)
+
+static inline uint8_t transfer_crc8(const uint8_t *data, size_t len) {
+    uint8_t crc = 0x00;
+    for (size_t i = 0; i < len; i++) {
+        crc ^= data[i];
+        for (uint8_t bit = 0; bit < 8; bit++) {
+            crc = (crc & 0x80) ? (uint8_t)((crc << 1) ^ 0x07) : (uint8_t)(crc << 1);
+        }
+    }
+    return crc ^ 0x55;
+}
+
+static inline uint8_t transfer_blob_crc8(const transfer_blob_t *blob) {
+    return transfer_crc8(blob->raw, sizeof(blob->raw));
+}
