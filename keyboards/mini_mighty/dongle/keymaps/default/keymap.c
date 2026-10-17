@@ -24,8 +24,10 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 // clang-format on
 
 void keyboard_post_init_user(void) {
-    // Customise these values to desired behaviour
-#ifdef CONSOLE_ENABLE
+    // Customise these values to desired behaviour. -e EXTRAFLAGS=-DDONGLE_CONSOLE_QUIET
+    // keeps the console but drops the per-frame lines, each of which can busy-wait the
+    // main loop for milliseconds; the spi drop and high-water lines still print.
+#if defined(CONSOLE_ENABLE) && !defined(DONGLE_CONSOLE_QUIET)
     debug_enable = true;
     debug_keyboard = true;
     debug_mouse = true;

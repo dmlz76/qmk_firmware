@@ -5,6 +5,7 @@
 #include "gpio.h"
 #include "wait.h"
 #include "debug.h"
+#include "print.h"
 #include "report.h"
 #include "os_detection.h"
 #include "host.h"
@@ -13,6 +14,7 @@
 #define USE_SPI_IRQ (defined(__AVR__) || defined(__INTELLISENSE__))
 #if USE_SPI_IRQ
 #include <avr/interrupt.h>
+#include "atomic_util.h"
 #endif
 
 #include "transfer_blob.h"
@@ -52,18 +54,41 @@ static report_mouse_t mouse_report = {};
 // or a stray SCK edge costs that one frame. With a byte ring, which this replaces, it
 // shifted every frame after it until reset. Power of two; holds FRAME_COUNT - 1 frames,
 // the same 7 blobs the 64-byte ring held.
+//
+// Main only reads the ring inside ATOMIC_BLOCK, so the ISRs may rearrange it, read
+// index included, when it overflows (spi_frame_overflow()).
 #define FRAME_COUNT 8
 #define FRAME_NEXT(x) (((x) + 1) & (FRAME_COUNT - 1))
+#define FRAME_PREV(x) (((x) - 1) & (FRAME_COUNT - 1))
 
-static volatile uint8_t g_frames[FRAME_COUNT][SPI_FRAME_LEN];
-static volatile uint8_t g_frame_read = 0;  // written by main only
+static volatile uint8_t g_frames[FRAME_COUNT * SPI_FRAME_LEN]; // one flat array: see spi_frame()
+static volatile uint8_t g_frame_read = 0;  // oldest frame; main advances it, and so does an overflow
 static volatile uint8_t g_frame_write = 0; // written by the ISRs only; the slot being filled
 static volatile uint8_t g_frame_len = 0;   // bytes clocked in this CS assertion, saturating
+static volatile uint8_t g_frame_hwm = 0;   // most frames ever queued at once; FRAME_COUNT - 1 is full
 
-// Frames dropped, mod 256: wrong length (a lost or extra byte) or ring full. Main loop
-// reports changes; see spi_report_drops().
+// Frames dropped, mod 256: wrong length (a lost or extra byte), or discarded to make
+// room in a full ring. Main loop reports changes; see spi_report_drops().
 static volatile uint8_t g_drops_len = 0;
 static volatile uint8_t g_drops_full = 0;
+
+// Slot s of g_frames. One flat array, indexed in 8 bits with a shift and an add,
+// because the 16U2 has no hardware multiplier: as a [FRAME_COUNT][SPI_FRAME_LEN] array,
+// GCC called __mulhi3 for the 9-byte stride on every byte SPI_STC_vect took. That
+// cost ~50 cycles of the 512 a byte allows at 8 MHz, plus the registers a call makes
+// an ISR save.
+static inline volatile uint8_t *spi_frame(uint8_t s) {
+    uint8_t at = (uint8_t)(s << 3);
+    // Hides `at` from the optimizer. Otherwise it folds the shift and the add back
+    // into s * 9 and, at -Os, calls __mulqi3 for that.
+    __asm__("" : "+r"(at));
+    if (SPI_FRAME_LEN == 9) {
+        at += s;
+    }
+    return &g_frames[at];
+}
+static_assert(SPI_FRAME_LEN == 8 || SPI_FRAME_LEN == 9, "spi_frame() only knows strides of 8 and 9");
+static_assert(FRAME_COUNT * SPI_FRAME_LEN <= 256, "spi_frame() indexes in 8 bits");
 #endif
 #if SPI_FRAME_CRC
 static uint8_t s_drops_crc = 0; // main loop only
@@ -119,10 +144,10 @@ static inline bool spi_frame_check(const transfer_blob_t *blob, uint8_t crc) {
 }
 
 #if USE_SPI_IRQ
-static inline void spi_frame_take(uint8_t byte) {
+static inline __attribute__((always_inline)) void spi_frame_take(uint8_t byte) {
     uint8_t len = g_frame_len;
     if (len < SPI_FRAME_LEN) {
-        g_frames[g_frame_write][len] = byte;
+        spi_frame(g_frame_write)[len] = byte;
     }
     if (len != UINT8_MAX) {
         g_frame_len = len + 1;
@@ -135,6 +160,94 @@ ISR (SPI_STC_vect)
     SPDR = 0x0;
 #endif
     spi_frame_take(SPDR);
+}
+
+// Which input stream a frame belongs to, as one bit for spi_frame_overflow(). 0 for a
+// frame it may always drop: a 'B' (each peripheral resends its level every 2 min), or
+// a type byte that isn't one. Not a switch: GCC turns that into a lookup table, and on
+// the AVR .rodata takes RAM.
+#define FRAME_STREAMS 4
+static inline uint8_t spi_frame_stream(uint8_t type) {
+    return type == 'K' ? 1 : type == 'M' ? 2 : type == 'C' ? 4 : type == 'S' ? 8 : 0;
+}
+static_assert(FRAME_COUNT > FRAME_STREAMS, "a full ring plus the arrival must hold two frames of one stream");
+
+static inline __attribute__((always_inline)) void spi_frame_move(uint8_t to, uint8_t from) {
+    volatile uint8_t *d = spi_frame(to);
+    volatile uint8_t *s = spi_frame(from);
+    // Unrolled: as a loop, GCC rebuilds both 16-bit addresses for every byte, ~16 cycles
+    // a byte against ~4 here.
+#pragma GCC unroll 16
+    for (uint8_t i = 0; i < SPI_FRAME_LEN; i++) {
+        d[i] = s[i];
+    }
+}
+
+// The ring is full, and a whole frame has just landed in g_frame_write. One frame has to
+// go, and it must never be the newest of its stream. 'K', 'C' and 'S' frames are
+// absolute state, and so are an 'M' frame's buttons, so the newest of each is the one
+// that releases whatever the host is holding. Dropping the arrival, as this used to,
+// loses exactly that at the end of a burst and leaves a key in auto-repeat. Instead,
+// scanning back from the arrival, it takes:
+//   1. the first frame whose loss costs nothing that matters: a 'B', a frame with no
+//      valid type, or an 'M' with the same buttons as the next newer 'M' (only its
+//      motion is lost). A burst of 'M' frames, the usual way the ring fills, has one
+//      within two frames of the arrival;
+//   2. failing that, the oldest frame with a newer one in its stream. That loses an
+//      intermediate state, a tap at worst, and nothing is left held.
+// 8 frames, the arrival included, over 4 streams, so 2 always finds one. The frames
+// left keep their order. Worst case, with SPI_STC_vect held off: a scan of 8 frames and
+// 3 frame moves, toward whichever end of the ring is nearer.
+static inline void spi_frame_overflow(void) {
+    uint8_t read = g_frame_read, write = g_frame_write;
+
+    // Newest to oldest, so `seen` holds the streams of every frame newer than slot s.
+    // The arrival is the fallback victim, though rule 2 can't come up empty.
+    uint8_t victim = write, seen = 0;
+    int16_t newer_buttons = -1; // of the next newer 'M'; -1 for none yet
+    for (uint8_t s = write;; s = FRAME_PREV(s)) {
+        volatile uint8_t *f      = spi_frame(s);
+        uint8_t           type   = f[0];
+        uint8_t           stream = spi_frame_stream(type);
+        if (stream == 0) {
+            victim = s;
+            break;
+        }
+        if (type == 'M') {
+            uint8_t buttons = f[offsetof(transfer_blob_t, m.buttons)];
+            if (buttons == newer_buttons) {
+                victim = s;
+                break;
+            }
+            newer_buttons = buttons;
+        }
+        if (seen & stream) {
+            victim = s; // superseded: rule 2's pick so far, moving back to the oldest
+        }
+        seen |= stream;
+        if (s == read) {
+            break;
+        }
+    }
+    g_drops_full++;
+
+    if (victim == write) {
+        return; // the arrival itself; the next frame fills its slot again
+    }
+    if (((victim - read) & (FRAME_COUNT - 1)) <= ((write - victim) & (FRAME_COUNT - 1))) {
+        // Nearer the oldest end: move the older frames up over the victim, then commit.
+        for (uint8_t s = victim; s != read; s = FRAME_PREV(s)) {
+            spi_frame_move(s, FRAME_PREV(s));
+        }
+        g_frame_read  = FRAME_NEXT(read);
+        g_frame_write = FRAME_NEXT(write);
+    } else {
+        // Nearer the arrival: move the newer frames, the arrival included, down over it.
+        // That leaves the arrival just behind g_frame_write, so it's already committed.
+        for (uint8_t s = victim; s != write; s = FRAME_NEXT(s)) {
+            spi_frame_move(s, FRAME_NEXT(s));
+        }
+    }
 }
 
 // CS changed level. Bytes only clock in while CS is low, so on either edge the
@@ -153,11 +266,16 @@ ISR (PCINT0_vect)
 
     uint8_t len = g_frame_len;
     if (len == SPI_FRAME_LEN) {
+        uint8_t read = g_frame_read;
         uint8_t next = FRAME_NEXT(g_frame_write);
-        if (next != g_frame_read) {
+        if (next != read) {
             g_frame_write = next;
+            uint8_t depth = (next - read) & (FRAME_COUNT - 1);
+            if (depth > g_frame_hwm) {
+                g_frame_hwm = depth;
+            }
         } else {
-            g_drops_full++;
+            spi_frame_overflow();
         }
     } else if (len != 0) {
         g_drops_len++;
@@ -165,35 +283,86 @@ ISR (PCINT0_vect)
     g_frame_len = 0;
 }
 
-bool spi_receive(transfer_blob_t *blob) {
-    uint8_t read = g_frame_read;
-    if (read == g_frame_write) {
-        return false;
-    }
+// Copies frame `slot` out: the blob into *blob, and returns the CRC byte after it.
+// Unrolled, like spi_frame_move(): callers run it with interrupts off.
+static inline uint8_t spi_frame_copy_out(uint8_t slot, transfer_blob_t *blob) {
+    volatile uint8_t *f = spi_frame(slot);
+#pragma GCC unroll 16
     for (uint8_t i = 0; i < sizeof(blob->raw); i++) {
-        blob->raw[i] = g_frames[read][i];
+        blob->raw[i] = f[i];
     }
-    uint8_t crc = g_frames[read][SPI_FRAME_LEN - 1];
-    // The slot is copied out, so hand it back before checking: a bad frame is consumed
-    // like a good one.
-    g_frame_read = FRAME_NEXT(read);
-    return spi_frame_check(blob, crc);
+    return f[SPI_FRAME_LEN - 1];
 }
 
-// Logs whenever a drop counter has moved since the last call. Console builds only, in
-// effect: dprintf is empty otherwise.
+bool spi_receive(transfer_blob_t *blob) {
+    bool    have = false;
+    uint8_t crc  = 0;
+    // Atomic, or an overflow could move frames under the copy.
+    ATOMIC_BLOCK_FORCEON {
+        uint8_t read = g_frame_read;
+        if (read != g_frame_write) {
+            crc = spi_frame_copy_out(read, blob);
+            // Handed back before checking: a bad frame is consumed like a good one.
+            g_frame_read = FRAME_NEXT(read);
+            have         = true;
+        }
+    }
+    return have && spi_frame_check(blob, crc);
+}
+
+// x + d stays inside the 8-bit mouse report's -127..127. The blob's fields are int8
+// whatever the report's width.
+static inline bool spi_motion_fits(int8_t x, int8_t d) {
+    int16_t sum = (int16_t)x + d;
+    return sum >= INT8_MIN + 1 && sum <= INT8_MAX;
+}
+
+// Pops the oldest frame and adds its motion into *m, but only if it's an 'M' with m's
+// buttons and the sums still fit. It's looked at and popped in one atomic section, so
+// an overflow can't swap the oldest frame in between. One that then fails its CRC is
+// consumed, counted, and ends the merge.
+static bool spi_receive_motion(transfer_blob_t *m) {
+    transfer_blob_t next;
+    bool            popped = false;
+    uint8_t         crc    = 0;
+    ATOMIC_BLOCK_FORCEON {
+        uint8_t read = g_frame_read;
+        if (read != g_frame_write) {
+            crc = spi_frame_copy_out(read, &next);
+            if (next.type == 'M' && next.m.buttons == m->m.buttons && spi_motion_fits(m->m.x, next.m.x) && spi_motion_fits(m->m.y, next.m.y) && spi_motion_fits(m->m.v, next.m.v)) {
+                g_frame_read = FRAME_NEXT(read);
+                popped       = true;
+            }
+        }
+    }
+    if (!popped || !spi_frame_check(&next, crc)) {
+        return false;
+    }
+    m->m.x += next.m.x;
+    m->m.y += next.m.y;
+    m->m.v += next.m.v;
+    return true;
+}
+
+// Logs whenever a drop counter or the high-water mark has moved since the last call.
+// uprintf, not dprintf, so these still print with debug_enable off. Console builds only,
+// in effect: uprintf is empty otherwise.
 static void spi_report_drops(void) {
-    static uint8_t s_len, s_full;
-    uint8_t len = g_drops_len, full = g_drops_full;
+    static uint8_t s_len, s_full, s_hwm;
+    uint8_t len = g_drops_len, full = g_drops_full, hwm = g_frame_hwm;
     if (len != s_len || full != s_full) {
-        dprintf("spi dropped: length %u, ring full %u (mod 256)\n", len, full);
+        uprintf("spi dropped: length %u, ring full %u (mod 256)\n", len, full);
         s_len = len;
         s_full = full;
+    }
+    if (hwm != s_hwm) {
+        uprintf("spi ring: high water %u of %u\n", hwm, FRAME_COUNT - 1);
+        s_hwm = hwm;
     }
 #if SPI_FRAME_CRC
     static uint8_t s_crc;
     if (s_drops_crc != s_crc) {
-        dprintf("spi dropped: crc %u (mod 256)\n", s_drops_crc);
+        uprintf("spi dropped: crc %u (mod 256)\n", s_drops_crc);
         s_crc = s_drops_crc;
     }
 #endif
@@ -218,6 +387,12 @@ bool spi_receive(transfer_blob_t *blob) {
     }
     uint8_t crc = SPI_FRAME_CRC ? spi_read() : 0;
     return spi_frame_check(blob, crc);
+}
+
+// No ring to look ahead in, so nothing to merge.
+static bool spi_receive_motion(transfer_blob_t *m) {
+    (void)m;
+    return false;
 }
 
 static void spi_report_drops(void) {}
@@ -258,9 +433,16 @@ uint8_t matrix_scan(void) {
     uint16_t usage     = 0;
 #endif
 
+#ifdef SPI_TEST_STALL_MS
+    // Bench test of the ring's overflow handling only: stalling every scan makes any
+    // burst fill the ring. Build with -e EXTRAFLAGS=-DSPI_TEST_STALL_MS=50. Never ship it.
+    wait_ms(SPI_TEST_STALL_MS);
+#endif
+
     // One parse for both transports. The IRQ path pulls a whole frame out of
     // the ring the ISRs fill; the polled path shifts it in while CS is
-    // asserted. Only the acquisition differs, so only spi_receive() is #if'd.
+    // asserted. Only the acquisition differs, so only spi_receive() and
+    // spi_receive_motion() are #if'd.
     // Either way a blob that fails its CRC never reaches the switch.
     transfer_blob_t blob;
     bool            have_blob = spi_receive(&blob);
@@ -269,10 +451,20 @@ uint8_t matrix_scan(void) {
     if (have_blob) {
         dprintf("spi received: type %d\n", blob.type);
         switch (blob.type) {
-            case 'M':
-                dprintf("spi received: buttons %02X, x %d, y %d, v %d\n", blob.m.buttons, blob.m.x, blob.m.y, blob.m.v);
+            case 'M': {
+                // Fold in the 'M' frames queued right behind this one with the same
+                // buttons. A drain held up by a slow host or the console would otherwise
+                // spend a USB report on each, and that's what fills the ring. Only motion
+                // is summed, so nothing is lost, and a button change always gets its own
+                // report.
+                uint8_t merged = 0;
+                while (spi_receive_motion(&blob)) {
+                    merged++;
+                }
+                dprintf("spi received: buttons %02X, x %d, y %d, v %d, merged %u\n", blob.m.buttons, blob.m.x, blob.m.y, blob.m.v, merged);
                 m_changed = true;
                 break;
+            }
             case 'K':
                 dprintf("spi received: mods %02X, keys %d,%d,%d,%d,%d,%d\n", blob.k.mods, blob.k.keys[0], blob.k.keys[1], blob.k.keys[2], blob.k.keys[3], blob.k.keys[4], blob.k.keys[5]);
                 k_changed = true;
