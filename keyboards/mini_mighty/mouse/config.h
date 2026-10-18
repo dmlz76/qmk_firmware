@@ -6,7 +6,14 @@
 
 #define ENCODER_RESOLUTION 2
 
-#define MK_KINETIC_SPEED
+// Wheel acceleration (encoder_update_kb in the keymap). A notch that comes at least
+// WHEEL_ACCEL_SLOW_MS after the previous one scrolls one wheel unit, as it always
+// has; quicker notches scale up as SLOW_MS / interval, to at most WHEEL_ACCEL_MAX
+// units per notch. One unit is one host notch and macOS has no fractional wheel,
+// so this can only add speed: the fine end comes from turning the host's scroll
+// speed down, and this gives the long pages back. WHEEL_ACCEL_MAX 1 turns it off.
+#define WHEEL_ACCEL_SLOW_MS 100
+#define WHEEL_ACCEL_MAX 4
 
 #ifdef POINTING_DEVICE_ENABLE
 #define POINTING_DEVICE_SCLK_PIN C4

@@ -106,9 +106,35 @@ void housekeeping_task_user(void) {
 // and MOUSEKEY is off here to fit CONSOLE_ENABLE on the atmega16u2. Replacing the
 // default also drops its tap_code(KC_PGUP/PGDN) machinery from the build, which
 // matters on this nearly-full 16u2. Populate report->v directly — no mousekey.
+//
+// Accelerated by the time since the previous notch (see WHEEL_ACCEL_* in
+// config.h). The gain is kept in 1/16 units and the remainder carried into the
+// next notch, so a steady spin between two whole gains averages out rather than
+// snapping to the lower one. A slow notch or a reversal starts clean at 1.
 bool encoder_update_kb(uint8_t index, bool clockwise) {
+    static uint16_t last_notch;
+    static uint8_t  frac;
+    static bool     last_clockwise;
+
+    uint16_t dt = timer_elapsed(last_notch);
+    last_notch  = timer_read();
+
+    uint8_t gain = 16;
+    if (dt >= WHEEL_ACCEL_SLOW_MS || clockwise != last_clockwise) {
+        frac = 0;
+    } else if (dt * WHEEL_ACCEL_MAX <= WHEEL_ACCEL_SLOW_MS) {
+        gain = WHEEL_ACCEL_MAX * 16;
+    } else {
+        gain = WHEEL_ACCEL_SLOW_MS * 16 / dt;
+    }
+    last_clockwise = clockwise;
+
+    frac += gain;
+    int8_t units = frac >> 4;
+    frac &= 15;
+
     report_mouse_t report = pointing_device_get_report();
-    report.v = clockwise ? 1 : -1;
+    report.v = clockwise ? units : -units;
     pointing_device_set_report(report);
     pointing_device_send();
     return true;
