@@ -23,5 +23,5 @@
 
 // v1.0.0 was built with the 16 MHz CSTNE16M0V530000R0. Uncomment on a board that
 // has had it swapped for the 8 MHz CSTNE8M00GH5C000R0 (see common/mcu_clock.h).
-// #define MCU_RESONATOR_8MHZ
+#define MCU_RESONATOR_8MHZ
 #include "mcu_clock.h"
