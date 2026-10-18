@@ -776,6 +776,7 @@ void send_buf_init(uint8_t resetPin, uint8_t sleepPin) {
     // leaving them floating inputs, so the only difference this define makes to
     // the power measurement is the radio itself.
     spi_init();
+    gpio_set_pin_output(SPI_SS_PIN); // see the enabled path below
     gpio_set_pin_input_high(BLE_SPI_MISO_PIN);
 #    ifdef CONSOLE_ENABLE
     uprintf("ble_force_disabled\n");
@@ -802,6 +803,7 @@ void send_buf_init(uint8_t resetPin, uint8_t sleepPin) {
         gpio_set_pin_output(s_sleepPin);
         gpio_write_pin_low(s_sleepPin);
         spi_init();
+        gpio_set_pin_output(SPI_SS_PIN); // see the enabled path below
         gpio_set_pin_input_high(BLE_SPI_MISO_PIN);
 #    ifdef CONSOLE_ENABLE
         uprintf("ble_kill_switch off at boot\n");
@@ -814,6 +816,15 @@ void send_buf_init(uint8_t resetPin, uint8_t sleepPin) {
     gpio_set_pin_output(s_sleepPin);
 
     spi_init();
+
+    // Drive CS from boot. spi_init() only sets PORTB0, so until the first
+    // spi_start() made it an output the line was held high by the AVR's pull-up
+    // alone. On the mouse (v1.0.0, BLE) that read 1.4-1.6 mA at the cell with the
+    // AVR asleep, against 0.8-1.0 mA once CS was an output (2026-10-17). It is
+    // not a DC load: the line read 3.29 V on the pull-up and 3.30 V driven. Why
+    // a weakly held CS costs that much is still open. PORTB0 is already high, so
+    // this switches straight to driving high, with no edge.
+    gpio_set_pin_output(SPI_SS_PIN);
 
     // Must follow spi_init(), which leaves MISO a plain input with no pull-up.
     gpio_set_pin_input_high(BLE_SPI_MISO_PIN);
