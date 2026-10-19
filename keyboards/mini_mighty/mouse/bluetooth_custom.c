@@ -52,7 +52,7 @@ void bluetooth_send_mouse(report_mouse_t *report) {
 
     // Bounded backpressure drain. This used to spin until the blob enqueued —
     // if the nRF stops draining over SPI (its reset/init window, or it stops
-    // ACKing) the 20-deep ring stays full and this spins forever, stalling the
+    // ACKing) the ring stays full and this spins forever, stalling the
     // main loop (matrix scan, USB, housekeeping). That stall is itself a reset
     // trigger. Cap the attempts; if still full, force the newest blob in so the
     // loop always makes forward progress and the current button/motion state is

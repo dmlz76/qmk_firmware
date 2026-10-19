@@ -11,6 +11,7 @@ extern "C" {
 #include <avr/wdt.h>
 #include <avr/sleep.h>
 #include <avr/interrupt.h>
+#include <avr/pgmspace.h>
 #include "lufa.h"
 #ifdef POINTING_DEVICE_ENABLE
 #    include "pointing_device.h"
@@ -63,7 +64,12 @@ static uint8_t  s_power_save_state         = 0;
 // Depth pairs with the nRF's capture ring, which is 64 slots / 63 usable. If
 // this ever grows past ~60, SPI_RING_SIZE in mini_mighty_spi_transfer.c has to
 // grow with it — nothing enforces that across the two repos except this comment.
-static RingBuffer<transfer_blob_t, 20> s_send_buf;
+// One slot always stays empty, so it holds SEND_BUF_DEPTH - 1 blobs. The mouse
+// overrides the depth to save RAM (mouse/config.h).
+#ifndef SEND_BUF_DEPTH
+#    define SEND_BUF_DEPTH 20
+#endif
+static RingBuffer<transfer_blob_t, SEND_BUF_DEPTH> s_send_buf;
 
 // State carried between SPI transactions from the status the nRF shifts back on
 // MISO (transfer_status_t). See blob_landed() for what each one is for.
@@ -491,42 +497,18 @@ static void power_down(uint8_t wdto) {
 // value avr-libc defines is covered, so the default case is unreachable; it must stay
 // that way, because falling through to tc = 0 freezes the clock for the whole idle
 // period and every timeout built on it stops advancing.
+//
+// A flash table, not a switch: GCC turned the switch into the same table in .data,
+// 20 of the mouse's 512 bytes of RAM (see SEND_BUF_DEPTH in mouse/config.h).
+static const uint16_t wdt_timeout_ms[] PROGMEM = {
+    15 + 2, // WDTO_15MS + 2 (from observation)
+    30 + 2,   60 + 2,   120 + 2,  250 + 2,  500 + 2,
+    1000 + 2, 2000 + 2, 4000 + 2, 8000 + 2, // ... WDTO_8S
+};
+static_assert(WDTO_15MS == 0 && sizeof(wdt_timeout_ms) / sizeof(wdt_timeout_ms[0]) == WDTO_8S + 1, "one entry per WDTO_*, in order");
+
 uint16_t timer_count_from_wdt_timeout(uint8_t wdto) {
-    uint16_t tc = 0;
-    switch (wdto) {
-        case WDTO_15MS:
-            tc = 15 + 2; // WDTO_15MS + 2(from observation)
-            break;
-        case WDTO_30MS:
-            tc = 30 + 2;
-            break;
-        case WDTO_60MS:
-            tc = 60 + 2;
-            break;
-        case WDTO_120MS:
-            tc = 120 + 2;
-            break;
-        case WDTO_250MS:
-            tc = 250 + 2;
-            break;
-        case WDTO_500MS:
-            tc = 500 + 2;
-            break;
-        case WDTO_1S:
-            tc = 1000 + 2;
-            break;
-        case WDTO_2S:
-            tc = 2000 + 2;
-            break;
-        case WDTO_4S:
-            tc = 4000 + 2;
-            break;
-        case WDTO_8S:
-            tc = 8000 + 2;
-            break;
-        default:;
-    }
-    return tc;
+    return wdto <= WDTO_8S ? pgm_read_word(&wdt_timeout_ms[wdto]) : 0;
 }
 
 /* watchdog timeout */

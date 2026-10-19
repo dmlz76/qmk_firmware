@@ -67,3 +67,19 @@
 // Don't reason about naps on this board straight from the datasheet's WDP table --
 // read wdt_early_warning_enable() first.
 #define MCU_POWER_DOWN_WDTO WDTO_8S
+
+// BLE send queue depth (ble_send_buf.cpp, default 20 = 162 B). The atmega16u2 has
+// 512 B of RAM, and at 20 the stack had ~150 B. That wasn't enough: the USB control
+// interrupt runs with interrupts re-enabled and stacks ~70 B, plus a nested ISR, on
+// top of wherever the main loop is, and the sensor read path is ~90 B deep. So
+// enumeration could overflow into timer_count and USB_DeviceState. The hi-res wheel
+// build sits 27 B lower and failed about half its macOS plug-ins (2026-10-19,
+// PROGRESS.md). USB never queues. Over BLE the queue only rides out an nRF reboot or
+// a full nRF ring, and at the 3 ms sensor throttle 20 slots overflowed during motion
+// anyway; drop-oldest keeps the newest state. Each slot is 8 B of stack. At 12 the
+// static worst case (main loop + USB control ISR + a nested ISR) has ~49 B to spare
+// in the plain build and ~22 B with the hi-res wheel, so recheck the headroom before
+// adding RAM or raising this (PROGRESS.md 2026-10-19 has the method).
+#ifndef SEND_BUF_DEPTH // -e EXTRAFLAGS="-DSEND_BUF_DEPTH=n" to try another
+#    define SEND_BUF_DEPTH 12
+#endif
