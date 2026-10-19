@@ -56,5 +56,15 @@ void                  usb_device_state_set_idle_rate(uint8_t idle_rate);
 uint8_t               usb_device_state_get_idle_rate(void);
 void                  usb_device_state_reset_hid_state(void);
 
+#ifdef POINTING_DEVICE_HIRES_SCROLL_ENABLE
+// The mouse report's Resolution Multiplier feature (usb_descriptor.c) as the host last set
+// it; 0 after a bus reset. Nonzero: the host divides the wheel by
+// POINTING_DEVICE_HIRES_SCROLL_MULTIPLIER, so send hi-res units. Zero: it takes every unit
+// as a whole notch, which is all a host that never sets it (macOS) does. Fork-local:
+// upstream sends hi-res units either way.
+void    usb_device_state_set_hires_scroll(uint8_t multiplier);
+uint8_t usb_device_state_get_hires_scroll(void);
+#endif
+
 void notify_usb_device_state_change_kb(struct usb_device_state usb_device_state);
 void notify_usb_device_state_change_user(struct usb_device_state usb_device_state);

@@ -64,6 +64,12 @@
 #    include "raw_hid.h"
 #endif
 
+#if defined(POINTING_DEVICE_HIRES_SCROLL_ENABLE) && !defined(MOUSE_SHARED_EP)
+// Only the shared interface's SET_REPORT reads the Resolution Multiplier. On a mouse with its
+// own interface the host's request would stall, and hi-res would silently never engage.
+#    error "POINTING_DEVICE_HIRES_SCROLL_ENABLE needs MOUSE_SHARED_EP on LUFA"
+#endif
+
 #ifdef WAIT_FOR_USB
 // TODO: Remove backwards compatibility with old define
 #    define USB_WAIT_FOR_ENUMERATION
@@ -462,6 +468,14 @@ void EVENT_USB_Device_ControlRequest(void) {
                             if (report_id == REPORT_ID_KEYBOARD || report_id == REPORT_ID_NKRO) {
                                 usb_device_state_set_leds(Endpoint_Read_8());
                             }
+#ifdef POINTING_DEVICE_HIRES_SCROLL_ENABLE
+                            // The mouse's Resolution Multiplier feature: 2 bits, then padding.
+                            // Upstream ACKs it here and drops the value, so the device can't
+                            // tell a host that turned hi-res on from one that never will.
+                            else if (report_id == REPORT_ID_MOUSE) {
+                                usb_device_state_set_hires_scroll(Endpoint_Read_8() & 0x03);
+                            }
+#endif
                         } else {
                             usb_device_state_set_leds(Endpoint_Read_8());
                         }

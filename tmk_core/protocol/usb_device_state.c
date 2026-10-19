@@ -26,6 +26,11 @@
 
 static struct usb_device_state usb_device_state = {.idle_rate = 0, .leds = 0, .protocol = USB_PROTOCOL_REPORT, .configure_state = USB_DEVICE_STATE_NO_INIT};
 
+#ifdef POINTING_DEVICE_HIRES_SCROLL_ENABLE
+// Kept out of struct usb_device_state, which is passed by value to the notify callbacks.
+static uint8_t hires_scroll_multiplier = 0;
+#endif
+
 __attribute__((weak)) void notify_usb_device_state_change_kb(struct usb_device_state usb_device_state) {
     notify_usb_device_state_change_user(usb_device_state);
 }
@@ -61,6 +66,11 @@ void usb_device_state_set_resume(bool is_configured, uint8_t configuration_numbe
 
 void usb_device_state_set_reset(void) {
     usb_device_state.configure_state = USB_DEVICE_STATE_INIT;
+#ifdef POINTING_DEVICE_HIRES_SCROLL_ENABLE
+    // A new host (or a re-enumeration) starts from the descriptor's default until it says
+    // otherwise.
+    hires_scroll_multiplier = 0;
+#endif
     notify_usb_device_state_change(usb_device_state);
 }
 
@@ -99,3 +109,13 @@ void usb_device_state_set_idle_rate(uint8_t idle_rate) {
 inline uint8_t usb_device_state_get_idle_rate(void) {
     return usb_device_state.idle_rate;
 }
+
+#ifdef POINTING_DEVICE_HIRES_SCROLL_ENABLE
+void usb_device_state_set_hires_scroll(uint8_t multiplier) {
+    hires_scroll_multiplier = multiplier;
+}
+
+uint8_t usb_device_state_get_hires_scroll(void) {
+    return hires_scroll_multiplier;
+}
+#endif

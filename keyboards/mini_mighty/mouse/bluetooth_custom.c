@@ -48,7 +48,7 @@ void bluetooth_send_mouse(report_mouse_t *report) {
     blob.m.buttons = report->buttons;
     blob.m.x = report->x;
     blob.m.y = report->y;
-    blob.m.v = report->v;
+    blob.m.v = report->v; // whole notches: the encoder goes hi-res only while USB is the host
 
     // Bounded backpressure drain. This used to spin until the blob enqueued —
     // if the nRF stops draining over SPI (its reset/init window, or it stops

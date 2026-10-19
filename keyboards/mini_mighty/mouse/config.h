@@ -15,6 +15,23 @@
 #define WHEEL_ACCEL_SLOW_MS 200
 #define WHEEL_ACCEL_MAX 3
 
+// Hi-res wheel, under test (2026-10-19). Ubuntu has no scroll-speed setting to turn down,
+// so the curve above is too fast there. With this on, the mouse declares the HID Resolution
+// Multiplier. A host that turns it on (Linux and Windows do, at enumeration) gets notches in
+// 1/120ths, and the slow end of the curve keeps going below one notch: a notch twice
+// WHEEL_ACCEL_SLOW_MS after the last scrolls half a notch, down to WHEEL_HIRES_MIN. A host
+// that leaves it off (macOS is expected to) gets whole notches exactly as without it.
+// USB only so far: over BLE and GZLL the mouse keeps sending whole notches, until the nRF's
+// report map, the blob and the dongle carry hi-res (~/repos/mini_mighty_nrf52805/
+// HIRES_WHEEL_HANDOFF.md). Build with -e EXTRAFLAGS="-DPOINTING_DEVICE_HIRES_SCROLL_ENABLE",
+// or uncomment.
+// #define POINTING_DEVICE_HIRES_SCROLL_ENABLE
+#ifdef POINTING_DEVICE_HIRES_SCROLL_ENABLE
+#    define POINTING_DEVICE_HIRES_SCROLL_MULTIPLIER 120 // units per notch
+#    define WHEEL_EXTENDED_REPORT                       // 120 x WHEEL_ACCEL_MAX overflows int8
+#    define WHEEL_HIRES_MIN 60                          // finest step, in 1/120 notch
+#endif
+
 #ifdef POINTING_DEVICE_ENABLE
 #define POINTING_DEVICE_SCLK_PIN C4
 #define POINTING_DEVICE_SDIO_PIN C5

@@ -4,6 +4,9 @@
 #include QMK_KEYBOARD_H
 #include "reset_reason.h"
 #include "connection.h"
+#ifdef POINTING_DEVICE_HIRES_SCROLL_ENABLE
+#    include "usb_device_state.h"
+#endif
 
 #include <avr/io.h>
 #include <avr/wdt.h>
@@ -96,6 +99,11 @@ void housekeeping_task_user(void) {
     if (timer_elapsed(s_last_mcusr_print) >= 3000) {
         s_last_mcusr_print = timer_read();
         uprintf("MCUSR=0x%02X up=%lums prev=0x%02X ran>=%lums ok=%u\n", g_reset_mcusr, (unsigned long)s_nv_uptime, s_prev_mcusr, (unsigned long)s_prev_uptime, s_prev_valid);
+#    ifdef POINTING_DEVICE_HIRES_SCROLL_ENABLE
+        // The host sets the multiplier at enumeration, before any listener can attach,
+        // so it is restated here rather than logged when it lands.
+        uprintf("hires: multiplier %u, usb %u\n", usb_device_state_get_hires_scroll(), connection_get_host() == CONNECTION_HOST_USB);
+#    endif
     }
 #endif
 }
@@ -111,6 +119,20 @@ void housekeeping_task_user(void) {
 // config.h). The gain is kept in 1/16 units and the remainder carried into the
 // next notch, so a steady spin between two whole gains averages out rather than
 // snapping to the lower one. A slow notch or a reversal starts clean at 1.
+//
+// With POINTING_DEVICE_HIRES_SCROLL_ENABLE, and only while the USB host has the
+// Resolution Multiplier on, the same curve goes out in 1/120 notch instead. That
+// is fine enough to need no remainder, and it lets the slow end keep falling as
+// MULTIPLIER * SLOW_MS / interval below one notch, to WHEEL_HIRES_MIN.
+#ifdef POINTING_DEVICE_HIRES_SCROLL_ENABLE
+#    if POINTING_DEVICE_HIRES_SCROLL_MULTIPLIER * WHEEL_ACCEL_SLOW_MS > 65535
+#        error "MULTIPLIER * WHEEL_ACCEL_SLOW_MS must fit uint16_t"
+#    endif
+#    define WHEEL_HIRES_K ((uint16_t)POINTING_DEVICE_HIRES_SCROLL_MULTIPLIER * WHEEL_ACCEL_SLOW_MS)
+// Past this interval the curve would drop below WHEEL_HIRES_MIN.
+#    define WHEEL_HIRES_FLOOR_MS (POINTING_DEVICE_HIRES_SCROLL_MULTIPLIER * WHEEL_ACCEL_SLOW_MS / WHEEL_HIRES_MIN)
+#endif
+
 bool encoder_update_kb(uint8_t index, bool clockwise) {
     static uint16_t last_notch;
     static uint8_t  frac;
@@ -119,19 +141,36 @@ bool encoder_update_kb(uint8_t index, bool clockwise) {
     uint16_t dt = timer_elapsed(last_notch);
     last_notch  = timer_read();
 
-    uint8_t gain = 16;
-    if (dt >= WHEEL_ACCEL_SLOW_MS || clockwise != last_clockwise) {
-        frac = 0;
-    } else if (dt * WHEEL_ACCEL_MAX <= WHEEL_ACCEL_SLOW_MS) {
-        gain = WHEEL_ACCEL_MAX * 16;
-    } else {
-        gain = WHEEL_ACCEL_SLOW_MS * 16 / dt;
-    }
+    bool reversed  = clockwise != last_clockwise;
     last_clockwise = clockwise;
 
-    frac += gain;
-    int8_t units = frac >> 4;
-    frac &= 15;
+    mouse_hv_report_t units;
+#ifdef POINTING_DEVICE_HIRES_SCROLL_ENABLE
+    if (usb_device_state_get_hires_scroll() && connection_get_host() == CONNECTION_HOST_USB) {
+        if (reversed || dt >= WHEEL_HIRES_FLOOR_MS) {
+            units = WHEEL_HIRES_MIN;
+        } else if (dt * WHEEL_ACCEL_MAX <= WHEEL_ACCEL_SLOW_MS) {
+            units = POINTING_DEVICE_HIRES_SCROLL_MULTIPLIER * WHEEL_ACCEL_MAX;
+        } else {
+            units = WHEEL_HIRES_K / dt;
+        }
+    } else
+#endif
+    {
+        uint8_t gain = 16;
+        if (dt >= WHEEL_ACCEL_SLOW_MS || reversed) {
+            frac = 0;
+        } else if (dt * WHEEL_ACCEL_MAX <= WHEEL_ACCEL_SLOW_MS) {
+            gain = WHEEL_ACCEL_MAX * 16;
+        } else {
+            gain = WHEEL_ACCEL_SLOW_MS * 16 / dt;
+        }
+
+        frac += gain;
+        units = frac >> 4;
+        frac &= 15;
+    }
+    dprintf("wheel: dt %u units %d\n", dt, units);
 
     report_mouse_t report = pointing_device_get_report();
     report.v = clockwise ? units : -units;
