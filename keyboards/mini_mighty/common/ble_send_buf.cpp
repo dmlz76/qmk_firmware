@@ -520,7 +520,15 @@ ISR(WDT_vect) {
 
 #if ENABLE_POWER_SAVINGS
 static void mcu_power_down() {
-    if (USB_DeviceState == DEVICE_STATE_Configured) {
+    // Stay awake whenever a host is on the bus, not only once it has configured us.
+    // Power-down stops the USB clock, so a host still enumerating would get no answer.
+    // Gating on Configured alone allowed that on a plug-in while idle, since a wake-up
+    // only lands in Powered, and on a boot whose enumeration ran past
+    // POWER_SAVE_TIMEOUT_MS. Found from code while chasing the mouse's 2026-10-19
+    // plug-in failures, which turned out to be the stack (SEND_BUF_DEPTH, mouse/config.h).
+    // With no host, LUFA sees the bus idle for 3 ms and drops to Unattached (U2, no
+    // VBUS pin) or Suspended, so a device on battery still sleeps.
+    if (USB_DeviceState != DEVICE_STATE_Unattached && USB_DeviceState != DEVICE_STATE_Suspended) {
         s_power_save_state &= ~POWER_SAVE_STATE_MCU;
         return;
     }
