@@ -17,7 +17,15 @@ typedef union {
                 uint8_t buttons;
                 int8_t  x; // Horizontal movement
                 int8_t  y; // Vertical movement
-                int8_t  v; // Vertical scroll
+                int8_t  v; // Vertical scroll, in whole notches
+                // The same scroll in 1/120 notch, int16 little-endian, for a host that
+                // has turned on the HID Resolution Multiplier. Two bytes rather than an
+                // int16_t for the alignment reason given at `e` below. Valid only with
+                // TRANSFER_MOUSE_HAS_V_HR in flags: read it with transfer_mouse_v_hr(),
+                // never directly.
+                uint8_t v_hr_lo;
+                uint8_t v_hr_hi;
+                uint8_t flags; // TRANSFER_MOUSE_*
             } m;
             struct {
                 uint8_t mods;
@@ -64,6 +72,37 @@ typedef union {
 
 TRANSFER_STATIC_ASSERT(sizeof(transfer_blob_t) == 8, "blob frame must stay 8 bytes");
 TRANSFER_STATIC_ASSERT(offsetof(transfer_blob_t, k.mods) == 1, "payload must start at offset 1; a padded union would break the wire format");
+
+// KEEP IN SYNC WITH THE nRF FIRMWARE
+// (mini_mighty_common/mini_mighty_spi_transfer.h in ~/repos/mini_mighty_nrf52805)
+//
+// An 'M' blob's wheel travel comes in two units. The mouse AVR fills both from the same
+// notch: m.v from its whole-notch curve, and m.v_hr from its hi-res one, which lets a slow
+// notch scroll less than a whole one. Whichever end knows the host's HID Resolution
+// Multiplier picks one: the mouse's nRF over BLE, the dongle's AVR over GZLL.
+//
+// TRANSFER_MOUSE_HAS_V_HR in m.flags says m.v_hr is filled in. An AVR from before hi-res,
+// or built without it, zeroes the spare bytes, so the flag is clear and the scroll reads as
+// m.v whole notches. With the flag set, a v_hr of 0 really is no scroll, so a merge is a
+// plain sum: v + v, and transfer_mouse_v_hr() of both stored with transfer_mouse_set_v_hr().
+// That holds whether or not either blob had the flag.
+#define TRANSFER_WHEEL_HIRES_PER_NOTCH 120
+#define TRANSFER_MOUSE_HAS_V_HR 0x01 // m.flags
+
+TRANSFER_STATIC_ASSERT(offsetof(transfer_blob_t, m.flags) == 7, "the 'M' payload must end at the frame's last byte");
+
+static inline int16_t transfer_mouse_v_hr(const transfer_blob_t *blob) {
+    if (blob->m.flags & TRANSFER_MOUSE_HAS_V_HR) {
+        return (int16_t)((uint16_t)blob->m.v_hr_lo | ((uint16_t)blob->m.v_hr_hi << 8));
+    }
+    return (int16_t)(blob->m.v * TRANSFER_WHEEL_HIRES_PER_NOTCH);
+}
+
+static inline void transfer_mouse_set_v_hr(transfer_blob_t *blob, int16_t v_hr) {
+    blob->m.v_hr_lo = (uint8_t)v_hr;
+    blob->m.v_hr_hi = (uint8_t)((uint16_t)v_hr >> 8);
+    blob->m.flags |= TRANSFER_MOUSE_HAS_V_HR;
+}
 
 // KEEP IN SYNC WITH THE nRF FIRMWARE
 // (mini_mighty_common/mini_mighty_spi_transfer.h in ~/repos/mini_mighty_nrf52805)

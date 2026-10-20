@@ -120,10 +120,12 @@ void housekeeping_task_user(void) {
 // next notch, so a steady spin between two whole gains averages out rather than
 // snapping to the lower one. A slow notch or a reversal starts clean at 1.
 //
-// With POINTING_DEVICE_HIRES_SCROLL_ENABLE, and only while the USB host has the
-// Resolution Multiplier on, the same curve goes out in 1/120 notch instead. That
-// is fine enough to need no remainder, and it lets the slow end keep falling as
-// MULTIPLIER * SLOW_MS / interval below one notch, to WHEEL_HIRES_MIN.
+// With POINTING_DEVICE_HIRES_SCROLL_ENABLE the same curve also comes out in 1/120
+// notch. That is fine enough to need no remainder, and it lets the slow end keep
+// falling as MULTIPLIER * SLOW_MS / interval below one notch, to WHEEL_HIRES_MIN.
+// Over USB it goes out only while the host has the Resolution Multiplier on. Over BLE
+// and GZLL both units ride in the blob, and the nRF or the dongle picks one for its
+// own host (transfer_blob.h).
 #ifdef POINTING_DEVICE_HIRES_SCROLL_ENABLE
 #    if POINTING_DEVICE_HIRES_SCROLL_MULTIPLIER * WHEEL_ACCEL_SLOW_MS > 65535
 #        error "MULTIPLIER * WHEEL_ACCEL_SLOW_MS must fit uint16_t"
@@ -131,6 +133,9 @@ void housekeeping_task_user(void) {
 #    define WHEEL_HIRES_K ((uint16_t)POINTING_DEVICE_HIRES_SCROLL_MULTIPLIER * WHEEL_ACCEL_SLOW_MS)
 // Past this interval the curve would drop below WHEEL_HIRES_MIN.
 #    define WHEEL_HIRES_FLOOR_MS (POINTING_DEVICE_HIRES_SCROLL_MULTIPLIER * WHEEL_ACCEL_SLOW_MS / WHEEL_HIRES_MIN)
+
+// bluetooth_custom.c: the hi-res wheel for the next report's whole notches.
+void bluetooth_set_wheel_hires(int16_t v_hr);
 #endif
 
 bool encoder_update_kb(uint8_t index, bool clockwise) {
@@ -144,33 +149,40 @@ bool encoder_update_kb(uint8_t index, bool clockwise) {
     bool reversed  = clockwise != last_clockwise;
     last_clockwise = clockwise;
 
-    mouse_hv_report_t units;
-#ifdef POINTING_DEVICE_HIRES_SCROLL_ENABLE
-    if (usb_device_state_get_hires_scroll() && connection_get_host() == CONNECTION_HOST_USB) {
-        if (reversed || dt >= WHEEL_HIRES_FLOOR_MS) {
-            units = WHEEL_HIRES_MIN;
-        } else if (dt * WHEEL_ACCEL_MAX <= WHEEL_ACCEL_SLOW_MS) {
-            units = POINTING_DEVICE_HIRES_SCROLL_MULTIPLIER * WHEEL_ACCEL_MAX;
-        } else {
-            units = WHEEL_HIRES_K / dt;
-        }
-    } else
-#endif
-    {
-        uint8_t gain = 16;
-        if (dt >= WHEEL_ACCEL_SLOW_MS || reversed) {
-            frac = 0;
-        } else if (dt * WHEEL_ACCEL_MAX <= WHEEL_ACCEL_SLOW_MS) {
-            gain = WHEEL_ACCEL_MAX * 16;
-        } else {
-            gain = WHEEL_ACCEL_SLOW_MS * 16 / dt;
-        }
-
-        frac += gain;
-        units = frac >> 4;
-        frac &= 15;
+    uint8_t gain = 16;
+    if (dt >= WHEEL_ACCEL_SLOW_MS || reversed) {
+        frac = 0;
+    } else if (dt * WHEEL_ACCEL_MAX <= WHEEL_ACCEL_SLOW_MS) {
+        gain = WHEEL_ACCEL_MAX * 16;
+    } else {
+        gain = WHEEL_ACCEL_SLOW_MS * 16 / dt;
     }
+
+    frac += gain;
+    mouse_hv_report_t units = frac >> 4;
+    frac &= 15;
+
+#ifdef POINTING_DEVICE_HIRES_SCROLL_ENABLE
+    mouse_hv_report_t hires;
+    if (reversed || dt >= WHEEL_HIRES_FLOOR_MS) {
+        hires = WHEEL_HIRES_MIN;
+    } else if (dt * WHEEL_ACCEL_MAX <= WHEEL_ACCEL_SLOW_MS) {
+        hires = POINTING_DEVICE_HIRES_SCROLL_MULTIPLIER * WHEEL_ACCEL_MAX;
+    } else {
+        hires = WHEEL_HIRES_K / dt;
+    }
+
+    if (connection_get_host() == CONNECTION_HOST_USB) {
+        if (usb_device_state_get_hires_scroll()) {
+            units = hires;
+        }
+    } else {
+        bluetooth_set_wheel_hires(clockwise ? hires : -hires);
+    }
+    dprintf("wheel: dt %u units %d hires %d\n", dt, units, hires);
+#else
     dprintf("wheel: dt %u units %d\n", dt, units);
+#endif
 
     report_mouse_t report = pointing_device_get_report();
     report.v = clockwise ? units : -units;

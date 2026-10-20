@@ -19,6 +19,11 @@
 
 #include "transfer_blob.h"
 #include "peer_battery.h"
+#ifdef POINTING_DEVICE_HIRES_SCROLL_ENABLE
+#    include "usb_descriptor_common.h"
+#    include "usb_device_state.h"
+static_assert(POINTING_DEVICE_HIRES_SCROLL_MULTIPLIER == TRANSFER_WHEEL_HIRES_PER_NOTCH, "the descriptor's multiplier must match the blob's hi-res unit");
+#endif
 
 #define RST_PIN D4
 
@@ -317,6 +322,16 @@ static inline bool spi_motion_fits(int8_t x, int8_t d) {
     return sum >= INT8_MIN + 1 && sum <= INT8_MAX;
 }
 
+#ifdef POINTING_DEVICE_HIRES_SCROLL_ENABLE
+// Sums the two blobs' 1/120-notch wheel into *v_hr. False if the sum leaves the 16-bit
+// report's -32767..32767.
+static inline bool spi_wheel_hires_fits(const transfer_blob_t *m, const transfer_blob_t *next, int16_t *v_hr) {
+    int32_t sum = (int32_t)transfer_mouse_v_hr(m) + transfer_mouse_v_hr(next);
+    *v_hr       = (int16_t)sum;
+    return sum >= -INT16_MAX && sum <= INT16_MAX;
+}
+#endif
+
 // Pops the oldest frame and adds its motion into *m, but only if it's an 'M' with m's
 // buttons and the sums still fit. It's looked at and popped in one atomic section, so
 // an overflow can't swap the oldest frame in between. One that then fails its CRC is
@@ -325,11 +340,18 @@ static bool spi_receive_motion(transfer_blob_t *m) {
     transfer_blob_t next;
     bool            popped = false;
     uint8_t         crc    = 0;
+#ifdef POINTING_DEVICE_HIRES_SCROLL_ENABLE
+    int16_t v_hr = 0;
+#endif
     ATOMIC_BLOCK_FORCEON {
         uint8_t read = g_frame_read;
         if (read != g_frame_write) {
             crc = spi_frame_copy_out(read, &next);
-            if (next.type == 'M' && next.m.buttons == m->m.buttons && spi_motion_fits(m->m.x, next.m.x) && spi_motion_fits(m->m.y, next.m.y) && spi_motion_fits(m->m.v, next.m.v)) {
+            if (next.type == 'M' && next.m.buttons == m->m.buttons && spi_motion_fits(m->m.x, next.m.x) && spi_motion_fits(m->m.y, next.m.y) && spi_motion_fits(m->m.v, next.m.v)
+#ifdef POINTING_DEVICE_HIRES_SCROLL_ENABLE
+                && spi_wheel_hires_fits(m, &next, &v_hr)
+#endif
+            ) {
                 g_frame_read = FRAME_NEXT(read);
                 popped       = true;
             }
@@ -341,6 +363,9 @@ static bool spi_receive_motion(transfer_blob_t *m) {
     m->m.x += next.m.x;
     m->m.y += next.m.y;
     m->m.v += next.m.v;
+#ifdef POINTING_DEVICE_HIRES_SCROLL_ENABLE
+    transfer_mouse_set_v_hr(m, v_hr);
+#endif
     return true;
 }
 
@@ -461,7 +486,7 @@ uint8_t matrix_scan(void) {
                 while (spi_receive_motion(&blob)) {
                     merged++;
                 }
-                dprintf("spi received: buttons %02X, x %d, y %d, v %d, merged %u\n", blob.m.buttons, blob.m.x, blob.m.y, blob.m.v, merged);
+                dprintf("spi received: buttons %02X, x %d, y %d, v %d, v_hr %d, merged %u\n", blob.m.buttons, blob.m.x, blob.m.y, blob.m.v, transfer_mouse_v_hr(&blob), merged);
                 m_changed = true;
                 break;
             }
@@ -515,7 +540,13 @@ uint8_t matrix_scan(void) {
         mouse_report.buttons = blob.m.buttons;
         mouse_report.x = blob.m.x;
         mouse_report.y = blob.m.y;
+#    ifdef POINTING_DEVICE_HIRES_SCROLL_ENABLE
+        // The unit the host asked for: 1/120 notch once it has turned the Resolution
+        // Multiplier on, whole notches otherwise (macOS never does).
+        mouse_report.v = usb_device_state_get_hires_scroll() ? transfer_mouse_v_hr(&blob) : blob.m.v;
+#    else
         mouse_report.v = blob.m.v;
+#    endif
         host_mouse_send(&mouse_report);
     }
 #endif

@@ -35,6 +35,16 @@ void bluetooth_send_keyboard(report_keyboard_t *report) {
     static_assert(KEYBOARD_REPORT_KEYS == 6, "Expected 6 keys in keyboard report");
 }
 
+#ifdef POINTING_DEVICE_HIRES_SCROLL_ENABLE
+// The encoder's notch in 1/120 notch, set just before it sends the same notch's whole
+// notches (keymap.c encoder_update_kb). Taken by the next report.
+static int16_t s_wheel_hires;
+
+void bluetooth_set_wheel_hires(int16_t v_hr) {
+    s_wheel_hires = v_hr;
+}
+#endif
+
 void bluetooth_send_mouse(report_mouse_t *report) {
 #ifdef CONSOLE_ENABLE
     if (debug_mouse) {
@@ -49,6 +59,15 @@ void bluetooth_send_mouse(report_mouse_t *report) {
     blob.m.x = report->x;
     blob.m.y = report->y;
     blob.m.v = report->v; // whole notches: the encoder goes hi-res only while USB is the host
+#ifdef POINTING_DEVICE_HIRES_SCROLL_ENABLE
+    // Both units of the same notch; the nRF or the dongle picks one for its host. Only
+    // next to a wheel report, so a stale value can't ride along with motion. Without one
+    // the flag stays clear, and the receiver reads m.v x 120 (transfer_mouse_v_hr()).
+    if (report->v && s_wheel_hires) {
+        transfer_mouse_set_v_hr(&blob, s_wheel_hires);
+    }
+    s_wheel_hires = 0;
+#endif
 
     // Bounded backpressure drain. This used to spin until the blob enqueued —
     // if the nRF stops draining over SPI (its reset/init window, or it stops
