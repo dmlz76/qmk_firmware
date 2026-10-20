@@ -12,7 +12,7 @@
 // units per notch. One unit is one host notch and macOS has no fractional wheel,
 // so this can only add speed: the fine end comes from turning the host's scroll
 // speed down, and this gives the long pages back. WHEEL_ACCEL_MAX 1 turns it off.
-#define WHEEL_ACCEL_SLOW_MS 100
+#define WHEEL_ACCEL_SLOW_MS 20
 #define WHEEL_ACCEL_MAX 3
 
 // Hi-res wheel, under test (2026-10-19). Ubuntu has no scroll-speed setting to turn down,
