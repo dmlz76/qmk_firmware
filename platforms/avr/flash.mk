@@ -49,7 +49,13 @@ define EXEC_DFU
 		fi; \
 		$(DFU_PROGRAMMER) $(MCU) flash $(BUILD_DIR)/$(TARGET).hex;\
 	fi; \
-	$(DFU_PROGRAMMER) $(MCU) reset || true # fork-local: dfu-programmer 1.x exits nonzero on reset (board detaches) though flash+validate above succeeded; avoids a false "Error 254"
+	$(DFU_PROGRAMMER) $(MCU) reset & pid=$$! ; i=0 ;\
+	while kill -0 $$pid 2>/dev/null && [ $$i -lt 50 ]; do sleep 0.1; i=$$((i + 1)); done ;\
+	if kill -0 $$pid 2>/dev/null; then\
+		kill -9 $$pid 2>/dev/null ;\
+		echo "dfu-programmer: reset sent but didn't return within 5 s; stopped it." ;\
+	fi ;\
+	wait $$pid 2>/dev/null || true # fork-local: dfu-programmer 1.x exits nonzero on reset (board detaches) though flash+validate above succeeded, which made a false "Error 254"; and on macOS 27 it can hang there for good, so it gets 5 s
 endef
 
 dfu: $(BUILD_DIR)/$(TARGET).hex cpfirmware check-size
