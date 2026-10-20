@@ -24,8 +24,8 @@
 // sends each 'M' blob's 1/120-notch wheel. Otherwise (macOS) it sends whole notches, as
 // without it. Safe with any mouse firmware: one that doesn't fill in the hi-res wheel reads
 // as whole notches x 120 (transfer_mouse_v_hr()). Build with
-// -e EXTRAFLAGS="-DPOINTING_DEVICE_HIRES_SCROLL_ENABLE", or uncomment.
-// #define POINTING_DEVICE_HIRES_SCROLL_ENABLE
+// -e EXTRAFLAGS="-DPOINTING_DEVICE_HIRES_SCROLL_ENABLE", or uncomment below.
+#define POINTING_DEVICE_HIRES_SCROLL_ENABLE
 #ifdef POINTING_DEVICE_HIRES_SCROLL_ENABLE
 #    define WHEEL_EXTENDED_REPORT // the hi-res wheel is int16
 #endif

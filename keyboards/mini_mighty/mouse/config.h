@@ -12,7 +12,7 @@
 // units per notch. One unit is one host notch and macOS has no fractional wheel,
 // so this can only add speed: the fine end comes from turning the host's scroll
 // speed down, and this gives the long pages back. WHEEL_ACCEL_MAX 1 turns it off.
-#define WHEEL_ACCEL_SLOW_MS 200
+#define WHEEL_ACCEL_SLOW_MS 100
 #define WHEEL_ACCEL_MAX 3
 
 // Hi-res wheel, under test (2026-10-19). Ubuntu has no scroll-speed setting to turn down,
@@ -21,11 +21,8 @@
 // 1/120ths, and the slow end of the curve keeps going below one notch: a notch twice
 // WHEEL_ACCEL_SLOW_MS after the last scrolls half a notch, down to WHEEL_HIRES_MIN. A host
 // that leaves it off (macOS is expected to) gets whole notches exactly as without it.
-// USB only so far: over BLE and GZLL the mouse keeps sending whole notches, until the nRF's
-// report map, the blob and the dongle carry hi-res (~/repos/mini_mighty_nrf52805/
-// HIRES_WHEEL_HANDOFF.md). Build with -e EXTRAFLAGS="-DPOINTING_DEVICE_HIRES_SCROLL_ENABLE",
-// or uncomment.
-// #define POINTING_DEVICE_HIRES_SCROLL_ENABLE
+// Build with -e EXTRAFLAGS="-DPOINTING_DEVICE_HIRES_SCROLL_ENABLE" or uncomment below.
+#define POINTING_DEVICE_HIRES_SCROLL_ENABLE
 #ifdef POINTING_DEVICE_HIRES_SCROLL_ENABLE
 #    define POINTING_DEVICE_HIRES_SCROLL_MULTIPLIER 120 // units per notch
 #    define WHEEL_EXTENDED_REPORT                       // 120 x WHEEL_ACCEL_MAX overflows int8
