@@ -433,14 +433,18 @@ void matrix_print(void) {
 void matrix_init(void) {
     spi_init_slave();
 
-    gpio_set_pin_output(RST_PIN);
-    gpio_write_pin_high(RST_PIN);
+    // RST_PIN is driven open-drain: low to reset the nRF, otherwise an input with the pull-up
+    // off, and the nRF's internal pull-up on P0.21/RESET holds it high. Never drive it high:
+    // the 16u2 runs from /VBUS (~4.7 V), above the nRF's VDD + 0.3 V limit, and the excess
+    // would flow through the pin's clamp diode into /VCC, which UCAP can't sink.
+    gpio_set_pin_input(RST_PIN);
 
 #if MANUAL_POWER_ON_RESET
     // Perform a hardware reset
     gpio_write_pin_low(RST_PIN);
+    gpio_set_pin_output(RST_PIN);
     wait_ms(100);
-    gpio_write_pin_high(RST_PIN);
+    gpio_set_pin_input(RST_PIN);
 
     wait_ms(1000); // Give it a second to initialize
 #endif
