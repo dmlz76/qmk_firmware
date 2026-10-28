@@ -9,8 +9,9 @@
 // The AVR is only a memory bridge with a gate in front of it. Everything that knows the
 // nRF's flash (NVMC, which pages to erase, verifying, finding RTT) lives in the host tool.
 //
-// Why the gate: the nRF firmware releases APPROTECT at every boot, so SWD reaches its
-// pairing keys (in flash and RAM) and can replace the radio firmware. Before this bridge
+// Why the gate: SWD reaches the running nRF's pairing keys (in flash and RAM) and can
+// replace the radio firmware. Rev 1 nRF52805s (the 2026 prototypes) never lock with
+// UICR.APPROTECT erased, and on rev 2 the firmware releases APPROTECT at every boot. Before this bridge
 // nothing on the host could reach either. So memory access takes a press of the dongle's
 // button, S1, which the AVR reads over SWD with the nRF halted. Neither host software nor a
 // broken nRF image can fake that.
@@ -20,8 +21,9 @@
 //               Then OPEN. Halted, the nRF can't act on the press itself (its 60 s pairing
 //               window, or the 10 s erase), and it's released before the nRF runs again.
 //               If the AHB-AP doesn't answer: pin reset, give the firmware 100 ms to
-//               release APPROTECT, and look again. Still locked (a fresh module, a broken
-//               image, UICR not HwDisabled) gets ERASE_ONLY.
+//               release APPROTECT, and look again. Still locked (a protected or fresh
+//               module, a broken image, UICR.APPROTECT Enabled, or on rev 2 not
+//               HwDisabled) gets ERASE_ONLY.
 //   ERASE_ONLY  ERASEALL, which returns once the erase is done, and then the part is
 //               blank and the gate OPEN. A working dongle can't be made to look locked
 //               from the host.

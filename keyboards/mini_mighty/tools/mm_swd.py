@@ -21,8 +21,9 @@ programs it.
 
 `flash` never touches the pairing pages [0x2E000, 0x30000), so pairings survive an update,
 unless you ask for --wipe-pairings. After any erase-all it writes UICR itself:
-APPROTECT = HwDisabled (0x5A), which the firmware needs in order to release APPROTECT at
-boot, and PSELRESET = P0.21, so the AVR's reset line works.
+PSELRESET = P0.21, so the AVR's reset line works, and, on nRF52805 rev 2 and later
+(improved APPROTECT), APPROTECT = HwDisabled (0x5A), which the firmware needs in order to
+release APPROTECT at boot. Rev 1 parts keep APPROTECT erased, which is what leaves them open.
 
 Needs a hidapi binding: `pip install hidapi`, or `pip install hid` plus the hidapi library
 (`brew install hidapi` on macOS). On Linux the raw HID node needs a udev rule, as for
@@ -88,6 +89,7 @@ UICR_PSELRESET0, UICR_PSELRESET1, UICR_APPROTECT = 0x10001200, 0x10001204, 0x100
 RESET_PIN = 21  # P0.21, wired to the AVR's PD4
 APPROTECT_HWDISABLED = 0x5A
 FICR_INFO_PART = 0x10000100
+FICR_PART_CODE = 0x10000130  # then the revision index, as the nRF MDK's errata checks read them
 NVMC_READY, NVMC_CONFIG, NVMC_ERASEPAGE = 0x4001E400, 0x4001E504, 0x4001E508
 NVMC_REN, NVMC_WEN, NVMC_EEN = 0, 1, 2
 DHCSR = 0xE000EDF0
@@ -329,16 +331,27 @@ def erase_all(bridge):
     bridge.check(CMD_ERASEALL, timeout=10)
 
 
+def improved_approtect(bridge):
+    """Whether this nRF52805 locks at every reset unless UICR.APPROTECT is HwDisabled (rev 2
+    and later). Rev 1 reads 0x0F, 0x00 here (nrfjprog: NRF52805_xxAA_REV1). Its
+    UICR.APPROTECT defines only Enabled (0x00) and Disabled (0xFF, erased)."""
+    return bridge.read_words(FICR_PART_CODE, 2) != [0x0F, 0x00]
+
+
 def write_uicr(bridge):
-    """What a blank UICR needs: debug access released at boot, and the AVR's reset line."""
+    """What a blank UICR needs: the AVR's reset line, and on improved-APPROTECT parts, debug
+    access released at boot. Rev 1 is left with APPROTECT erased: 0x5A isn't defined there."""
+    want = {UICR_PSELRESET0: RESET_PIN, UICR_PSELRESET1: RESET_PIN}
+    if improved_approtect(bridge):
+        want[UICR_APPROTECT] = APPROTECT_HWDISABLED
     nvmc_wait(bridge)
     bridge.write32(NVMC_CONFIG, NVMC_WEN)
-    for addr, value in ((UICR_PSELRESET0, RESET_PIN), (UICR_PSELRESET1, RESET_PIN), (UICR_APPROTECT, APPROTECT_HWDISABLED)):
+    for addr, value in want.items():
         bridge.write32(addr, value)
         nvmc_wait(bridge)
     bridge.write32(NVMC_CONFIG, NVMC_REN)
     got = bridge.read_words(UICR_PSELRESET0, 3)
-    if got != [RESET_PIN, RESET_PIN, APPROTECT_HWDISABLED]:
+    if got != [want.get(a, 0xFFFFFFFF) for a in (UICR_PSELRESET0, UICR_PSELRESET1, UICR_APPROTECT)]:
         sys.exit('mm_swd: UICR reads back as ' + ' '.join(f'0x{w:08X}' for w in got))
 
 
@@ -415,7 +428,7 @@ def do_info(bridge, args):
     try:
         dpidr, open_ = bridge.connect()
         print(f'nRF debug port: DPIDR 0x{dpidr:08X}; memory port '
-              + ('open (the firmware released APPROTECT)' if open_ else 'locked (new module, or firmware that keeps APPROTECT)'))
+              + ('open' if open_ else 'locked (new module, or firmware that keeps APPROTECT)'))
     finally:
         if gate == GATE_CLOSED:
             bridge.release()
