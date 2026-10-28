@@ -67,6 +67,13 @@
 //       side of the link (SPI, queueing) without the pull-up current.
 // #define BLE_FORCE_DISABLED 1
 
+// Test only: keep the PAW3220 out of Sleep3. It reaches Sleep3 ~41 s after motion
+// stops and then samples every 512 ms, so the first move after a pause can lag by
+// up to half a second; without it the sensor bottoms out in Sleep2 (128 ms) for
+// ~7 µA more at the rail. See paw3220_init() in drivers/sensors/paw3220.c.
+// Uncomment, or build with -e EXTRAFLAGS="-DPAW3220_SLEEP3_DISABLE".
+// #define PAW3220_SLEEP3_DISABLE
+
 // Watchdog period used for MCU power-down sleeps. Async wake (PCINT0/PCINT1)
 // handles button/encoder/motion events, so this is not the latency for normal
 // input -- but it IS what a *missed* wake costs: the MCU stays down for the full

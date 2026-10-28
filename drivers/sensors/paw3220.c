@@ -211,6 +211,14 @@ bool paw3220_init(void) {
     // LED is already dark by PAW3220_LED_OPTION_VALUE, so this does not have to
     // gate the driver to take the sensor out of a power measurement.
     paw3220_write_reg(REG_CONFIG, 0x11 | 0x08);
+#elif defined(PAW3220_SLEEP3_DISABLE)
+    // Test build: the automatic descent stops at Sleep2 (128 ms sampling, 15 µA)
+    // instead of going on to Sleep3 (512 ms, 8 µA), whose first motion sample can
+    // come up to half a second late. 0x11 is the power-on value, Slp3_Enh clear,
+    // but it is written anyway: neither a reflash nor an AVR reset resets the
+    // sensor (MANUAL_POWER_ON_RESET is 0), so a previous image's Slp3_Enh would
+    // otherwise survive into this one.
+    paw3220_write_reg(REG_CONFIG, 0x11);
 #else
     // Enable Sleep3, the deepest of the three automatic power-saving modes (8 µA vs
     // 30 µA in Sleep1), which is the one mode disabled by default.
