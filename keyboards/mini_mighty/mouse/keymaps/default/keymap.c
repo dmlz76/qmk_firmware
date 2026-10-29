@@ -76,7 +76,15 @@ void keyboard_pre_init_user(void) {
 }
 #endif
 
+#ifdef ENCODER_ENABLE
+static void wheel_task(void); // below encoder_update_kb
+#endif
+
 void housekeeping_task_user(void) {
+#ifdef ENCODER_ENABLE
+    wheel_task();
+#endif
+
     // No reset_reason_task() on the mouse: its one-shot line is superseded by the
     // periodic one below, and dropping it frees the flash that line needs. MCUSR
     // bits on the atmega16u2: POR 0x01, EXT 0x02, BOD 0x04, WDT 0x08, USB 0x20.
@@ -126,6 +134,15 @@ void housekeeping_task_user(void) {
 // Over USB it goes out only while the host has the Resolution Multiplier on. Over BLE
 // and GZLL both units ride in the blob, and the nRF or the dongle picks one for its
 // own host (transfer_blob.h).
+//
+// Contact bounce. A detent is one edge on one of the two contacts (ENCODER_RESOLUTION
+// 1), and QMK's quadrature driver doesn't debounce, so a contact that chatters as it
+// crosses its edge reads as a step, a step back, and the step again. The host scrolls
+// down, up and down, which at the end of a page shows as the page bouncing off it
+// (2026-10-29). So a step against the last one sent, within WHEEL_REVERSAL_HOLD_MS of
+// it, is held rather than sent, and the bounce's own return step cancels it. A held
+// step that nothing cancels is a real reversal, and wheel_task() sends it when the
+// window closes.
 #ifdef POINTING_DEVICE_HIRES_SCROLL_ENABLE
 #    if POINTING_DEVICE_HIRES_SCROLL_MULTIPLIER * WHEEL_ACCEL_SLOW_MS > 65535
 #        error "MULTIPLIER * WHEEL_ACCEL_SLOW_MS must fit uint16_t"
@@ -138,16 +155,19 @@ void housekeeping_task_user(void) {
 void bluetooth_set_wheel_hires(int16_t v_hr);
 #endif
 
-bool encoder_update_kb(uint8_t index, bool clockwise) {
-    static uint16_t last_notch;
-    static uint8_t  frac;
-    static bool     last_clockwise;
+static uint16_t s_wheel_last;      // when the last step was sent
+static bool     s_wheel_clockwise; // and which way it went
+static uint8_t  s_wheel_held;      // steps against it since then, held as bounce
 
-    uint16_t dt = timer_elapsed(last_notch);
-    last_notch  = timer_read();
+static void wheel_send(bool clockwise) {
+    static uint8_t frac;
 
-    bool reversed  = clockwise != last_clockwise;
-    last_clockwise = clockwise;
+    uint16_t dt  = timer_elapsed(s_wheel_last);
+    s_wheel_last = timer_read();
+
+    bool reversed     = clockwise != s_wheel_clockwise;
+    s_wheel_clockwise = clockwise;
+    s_wheel_held      = 0;
 
     uint8_t gain = 16;
     if (dt >= WHEEL_ACCEL_SLOW_MS || reversed) {
@@ -188,5 +208,27 @@ bool encoder_update_kb(uint8_t index, bool clockwise) {
     report.v = clockwise ? units : -units;
     pointing_device_set_report(report);
     pointing_device_send();
+}
+
+bool encoder_update_kb(uint8_t index, bool clockwise) {
+    if (clockwise == s_wheel_clockwise) {
+        if (s_wheel_held) {
+            s_wheel_held--; // back over an edge that was already sent
+            return true;
+        }
+    } else if (timer_elapsed(s_wheel_last) < WHEEL_REVERSAL_HOLD_MS) {
+        s_wheel_held++;
+        return true;
+    }
+    wheel_send(clockwise);
     return true;
+}
+
+// Sends a held step once its window has closed with nothing to cancel it. Only one:
+// more than one held means the contact was still chattering, and sent together they
+// would read as a fast spin.
+static void wheel_task(void) {
+    if (s_wheel_held && timer_elapsed(s_wheel_last) >= WHEEL_REVERSAL_HOLD_MS) {
+        wheel_send(!s_wheel_clockwise);
+    }
 }

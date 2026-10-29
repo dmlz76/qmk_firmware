@@ -15,6 +15,12 @@
 #define WHEEL_ACCEL_SLOW_MS 20
 #define WHEEL_ACCEL_MAX 3
 
+// Wheel bounce filter (encoder_update_kb). A step against the previous one is held for
+// this long after it, and dropped if the contact steps back again in that time. A real
+// reversal goes out when the window closes, so a quick one can be late by up to this.
+// 0 turns the filter off.
+#define WHEEL_REVERSAL_HOLD_MS 100
+
 // Hi-res wheel, under test (2026-10-19). Ubuntu has no scroll-speed setting to turn down,
 // so the curve above is too fast there. With this on, the mouse declares the HID Resolution
 // Multiplier. A host that turns it on (Linux and Windows do, at enumeration) gets notches in
