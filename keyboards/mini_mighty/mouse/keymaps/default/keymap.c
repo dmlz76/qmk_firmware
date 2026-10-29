@@ -76,15 +76,7 @@ void keyboard_pre_init_user(void) {
 }
 #endif
 
-#ifdef ENCODER_ENABLE
-static void wheel_task(void); // below encoder_update_kb
-#endif
-
 void housekeeping_task_user(void) {
-#ifdef ENCODER_ENABLE
-    wheel_task();
-#endif
-
     // No reset_reason_task() on the mouse: its one-shot line is superseded by the
     // periodic one below, and dropping it frees the flash that line needs. MCUSR
     // bits on the atmega16u2: POR 0x01, EXT 0x02, BOD 0x04, WDT 0x08, USB 0x20.
@@ -139,10 +131,11 @@ void housekeeping_task_user(void) {
 // 1), and QMK's quadrature driver doesn't debounce, so a contact that chatters as it
 // crosses its edge reads as a step, a step back, and the step again. The host scrolls
 // down, up and down, which at the end of a page shows as the page bouncing off it
-// (2026-10-29). So a step against the last one sent, within WHEEL_REVERSAL_HOLD_MS of
-// it, is held rather than sent, and the bounce's own return step cancels it. A held
-// step that nothing cancels is a real reversal, and wheel_task() sends it when the
-// window closes.
+// (2026-10-29). So a step against the last one sent is held rather than sent, and the
+// bounce's own return step cancels it. A reversal goes out once WHEEL_REVERSAL_STEPS
+// have built up. Chatter on one edge only swings between that edge's two sides, so
+// it never gets past one held step however long it lasts. There is deliberately no
+// timeout: a held step that nothing cancels at the end of a scroll is the bounce.
 #ifdef POINTING_DEVICE_HIRES_SCROLL_ENABLE
 #    if POINTING_DEVICE_HIRES_SCROLL_MULTIPLIER * WHEEL_ACCEL_SLOW_MS > 65535
 #        error "MULTIPLIER * WHEEL_ACCEL_SLOW_MS must fit uint16_t"
@@ -216,19 +209,9 @@ bool encoder_update_kb(uint8_t index, bool clockwise) {
             s_wheel_held--; // back over an edge that was already sent
             return true;
         }
-    } else if (timer_elapsed(s_wheel_last) < WHEEL_REVERSAL_HOLD_MS) {
-        s_wheel_held++;
+    } else if (++s_wheel_held < WHEEL_REVERSAL_STEPS) {
         return true;
     }
     wheel_send(clockwise);
     return true;
-}
-
-// Sends a held step once its window has closed with nothing to cancel it. Only one:
-// more than one held means the contact was still chattering, and sent together they
-// would read as a fast spin.
-static void wheel_task(void) {
-    if (s_wheel_held && timer_elapsed(s_wheel_last) >= WHEEL_REVERSAL_HOLD_MS) {
-        wheel_send(!s_wheel_clockwise);
-    }
 }
