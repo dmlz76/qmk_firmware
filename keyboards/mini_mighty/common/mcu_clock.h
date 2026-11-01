@@ -20,9 +20,32 @@
 // change is needed on either MCU: the factory low fuse 0x5E already selects the
 // 8-16 MHz range of the low-power oscillator (CKSEL3..1 = 111) with
 // ceramic-resonator start-up.
+//
+// MCU_CPU_DIV (1, 2 or 4) then runs the CPU at 8 MHz / MCU_CPU_DIV through the
+// system clock prescaler (CLKPR). While the AVR is awake its core is most of the
+// board's current, and that falls with the clock: kbd_wireless v3.0.0 read 16-17,
+// 9-10 and 5-6 mA at the cell, awake idle, at 8, 4 and 2 MHz (2026-10-31). A
+// rev*/config.h sets it next to MCU_RESONATOR_8MHZ, under #ifndef so that
+// -e MCU_CPU_DIV=1 (see the board's rules.mk) still builds a full-speed image.
+//
+// The division itself happens in keyboard_pre_init_kb(), in common/mcu_clock.c,
+// which a board that sets MCU_CPU_DIV must compile. Without it F_CPU claims 2 MHz
+// while the CPU runs at 8, and every delay and timer runs 4x fast. F_USB stays
+// 8 MHz: on both parts the USB PLL takes the oscillator ahead of CLKPR (32U4
+// doc7766 §6.9.1, 16U2 doc7799 Fig. 8-1), so USB's 48 MHz clock is unchanged.
 #ifdef MCU_RESONATOR_8MHZ
 #    undef F_CPU
-#    define F_CPU 8000000UL
+#    if !defined(MCU_CPU_DIV) || MCU_CPU_DIV == 1
+#        define F_CPU 8000000UL
+#    elif MCU_CPU_DIV == 2
+#        define F_CPU 4000000UL
+#    elif MCU_CPU_DIV == 4
+#        define F_CPU 2000000UL
+#    else
+#        error "MCU_CPU_DIV must be 1, 2 or 4"
+#    endif
 #    undef F_USB
 #    define F_USB 8000000UL
+#elif defined(MCU_CPU_DIV)
+#    error "MCU_CPU_DIV needs MCU_RESONATOR_8MHZ"
 #endif

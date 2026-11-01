@@ -9,7 +9,6 @@
 #include <string.h>
 #include <assert.h>
 
-
 #define Timeout 150             /* milliseconds */
 #define ShortTimeout 10         /* milliseconds */
 

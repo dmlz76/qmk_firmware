@@ -24,4 +24,9 @@
 // v1.0.0 was built with the 16 MHz CSTNE16M0V530000R0. Uncomment on a board that
 // has had it swapped for the 8 MHz CSTNE8M00GH5C000R0 (see common/mcu_clock.h).
 #define MCU_RESONATOR_8MHZ
+// CPU at 8 MHz / 4 = 2 MHz, as on kbd_wireless v3.0.0 (see common/mcu_clock.h).
+// Untested on the mouse (2026-10-31). Needs MCU_RESONATOR_8MHZ.
+#ifndef MCU_CPU_DIV
+#    define MCU_CPU_DIV 4
+#endif
 #include "mcu_clock.h"

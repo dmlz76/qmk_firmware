@@ -22,7 +22,9 @@ extern "C" {
 
 #define LSBFIRST false
 #define SPI_MODE 0
-#define SCK_DIVISOR (F_CPU / 2000000UL) // 2MHz SCK at any F_CPU: 8 at 16MHz, 4 at 8MHz
+// 2MHz SCK at F_CPU >= 4MHz: 8 at 16MHz, 4 at 8MHz, 2 at 4MHz. Below that, F_CPU/2
+// (the SPI minimum), so a 2MHz CPU (MCU_CPU_DIV 4, common/mcu_clock.h) runs SCK at 1MHz.
+#define SCK_DIVISOR (F_CPU >= 4000000UL ? F_CPU / 2000000UL : 2)
 
 #define PostSelectWait 250      /* microseconds */
 #define BackOff 100             /* microseconds */

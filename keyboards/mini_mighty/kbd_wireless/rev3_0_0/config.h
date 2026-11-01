@@ -25,4 +25,10 @@
 // Fitted with the 8 MHz CSTNE8M00GH5C000R0 (see common/mcu_clock.h). Comment out
 // for a board still carrying the 16 MHz CSTNE16M0V530000R0.
 #define MCU_RESONATOR_8MHZ
+// CPU at 8 MHz / 4 = 2 MHz: awake idle 16-17 -> 5-6 mA at the cell, with USB,
+// plug/unplug and BLE typing unchanged (user, 2026-10-31). Under evaluation.
+// Needs MCU_RESONATOR_8MHZ.
+#ifndef MCU_CPU_DIV
+#    define MCU_CPU_DIV 4
+#endif
 #include "mcu_clock.h"
