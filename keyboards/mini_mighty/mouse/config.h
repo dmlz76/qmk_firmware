@@ -72,12 +72,21 @@
 //       side of the link (SPI, queueing) without the pull-up current.
 // #define BLE_FORCE_DISABLED 1
 
-// Test only: keep the PAW3220 out of Sleep3. It reaches Sleep3 ~41 s after motion
-// stops and then samples every 512 ms, so the first move after a pause can lag by
-// up to half a second; without it the sensor bottoms out in Sleep2 (128 ms) for
-// ~7 µA more at the rail. See paw3220_init() in drivers/sensors/paw3220.c.
-// Uncomment, or build with -e EXTRAFLAGS="-DPAW3220_SLEEP3_DISABLE".
-#define PAW3220_SLEEP3_DISABLE
+// PAW3220 Sleep3 is the deepest automatic sleep, 8 µA against Sleep2's 15. But it
+// samples only every 512 ms (Sleep2: 128 ms), so the first move out of it lags by
+// up to half a second, which showed during short pauses with BLE still on
+// (2026-10-28 test). So Sleep3 starts as late as the sensor allows, (15 + 1) x
+// 20.48 s = 327.68 s after the last motion. That is just past BLE_OFF_TIMEOUT_MS
+// (5 min, common/ble_send_buf.cpp), and from then on the nRF's reboot and reconnect
+// slow the first move anyway. Until then the sensor sits in Sleep2, ~7 µA more at
+// the rail. Clicks and the wheel don't restart the sensor's idle count, so ~5.5 min
+// of only those still reaches Sleep3 with BLE on.
+#define PAW3220_SLEEP3_ETM 15
+
+// Test only: keep the PAW3220 out of Sleep3 altogether, so it bottoms out in Sleep2.
+// See paw3220_init() in drivers/sensors/paw3220.c. Uncomment, or build with
+// -e EXTRAFLAGS="-DPAW3220_SLEEP3_DISABLE".
+// #define PAW3220_SLEEP3_DISABLE
 
 // Watchdog period used for MCU power-down sleeps. Async wake (PCINT0/PCINT1)
 // handles button/encoder/motion events, so this is not the latency for normal

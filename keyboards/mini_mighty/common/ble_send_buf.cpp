@@ -52,6 +52,10 @@ extern "C" {
 #if ENABLE_POWER_SAVINGS
 #    define POWER_SAVE_TIMEOUT_MS 1000 // 1 sec
 #    define BLE_OFF_TIMEOUT_MS 300000  // 5 min
+// The mouse times the PAW3220's Sleep3 to start after this (mouse/config.h).
+#    ifdef PAW3220_SLEEP3_ETM
+static_assert((PAW3220_SLEEP3_ETM + 1) * 20480UL >= BLE_OFF_TIMEOUT_MS, "PAW3220 Sleep3 would start before BLE turns off");
+#    endif
 #    ifndef MCU_POWER_DOWN_WDTO
 #        define MCU_POWER_DOWN_WDTO WDTO_15MS
 #    endif

@@ -22,12 +22,25 @@
 
 #define REG_WRITE_PROTECT 0x09
 
+#define REG_SLEEP3 0x0C
+
 #define REG_CPI_X 0x0D
 #define REG_CPI_Y 0x0E
 
 #define REG_MOUSE_OPTION 0x19
 #define REG_SPI_MODE 0x26
 #define REG_LED_OPTION 0x5C
+
+// Sleep3 entry time, Slp3_Etm (§9.2.11): Sleep3 starts (n + 1) × 20.48 s after the
+// last motion, n = 0..15, so 20.48 s to 327.68 s. §5.2.1 and Figure 11 count every
+// Slpx_Etm from the start of no movement, not from entering the previous mode.
+// 0 is the power-on default.
+#ifndef PAW3220_SLEEP3_ETM
+#    define PAW3220_SLEEP3_ETM 0
+#endif
+#if PAW3220_SLEEP3_ETM > 15
+#    error "PAW3220_SLEEP3_ETM is a 4-bit field, 0 to 15"
+#endif
 
 // LED_Option (0x5C), written by the init sequence below.
 //
@@ -220,6 +233,9 @@ bool paw3220_init(void) {
     // otherwise survive into this one.
     paw3220_write_reg(REG_CONFIG, 0x11);
 #else
+    // Sleep3's entry time first. Slp3_Freq keeps its 512 ms default (0x7_). Written
+    // even at the default PAW3220_SLEEP3_ETM, for the same reason as 0x11 above.
+    paw3220_write_reg(REG_SLEEP3, 0x70 | PAW3220_SLEEP3_ETM);
     // Enable Sleep3, the deepest of the three automatic power-saving modes (8 µA vs
     // 30 µA in Sleep1), which is the one mode disabled by default.
     paw3220_write_reg(REG_CONFIG, 0x11 | 0x20);
