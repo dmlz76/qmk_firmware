@@ -64,12 +64,18 @@ STATUS_TEXT = {
     ST_BAD_ARGS: 'bad arguments',
     ST_NO_WIRING: 'this dongle has no SWD wiring to its AVR (PCB v6 or earlier); use a J-Link on J1',
     ST_NOT_CONNECTED: 'not connected',
-    ST_TIMEOUT: 'timed out (no button press within 30 s, or the erase never finished)',
+    ST_TIMEOUT: 'timed out (waiting for the button, or for an erase-all)',
     ST_LOCKED: "the nRF's debug port is locked",
     ST_SWD + 1: 'SWD: the nRF kept answering WAIT',
     ST_SWD + 2: 'SWD: the nRF answered FAULT',
     ST_SWD + 3: 'SWD: no answer from the nRF',
     ST_SWD + 4: 'SWD: parity error',
+}
+# Where a status means something narrower for one command. INFO's last result doesn't say
+# which command it came from, so `info` keeps the generic text above.
+CMD_STATUS_TEXT = {
+    (CMD_UNLOCK, ST_TIMEOUT): 'timed out: no button press within 30 s',
+    (CMD_ERASEALL, ST_TIMEOUT): "timed out: the nRF's erase-all never finished",
 }
 
 GATE_CLOSED, GATE_WAIT_PRESS, GATE_WAIT_RELEASE, GATE_ERASE_ONLY, GATE_OPEN = range(5)
@@ -104,7 +110,7 @@ CTRL_AP, CTRL_AP_RESET = 1, 0x000
 
 class BridgeError(Exception):
     def __init__(self, cmd, status):
-        super().__init__(STATUS_TEXT.get(status, f'status 0x{status:02X}'))
+        super().__init__(CMD_STATUS_TEXT.get((cmd, status)) or STATUS_TEXT.get(status, f'status 0x{status:02X}'))
         self.cmd, self.status = cmd, status
 
 
@@ -248,6 +254,25 @@ def session(bridge, allow_locked=False):
         bridge.release()
 
 
+class Progress:
+    """A status line, redrawn in place on a terminal. A carriage return doesn't redraw in a
+    pipe, a log file or an IDE's output pane, so there only the closing line is printed."""
+
+    def __init__(self):
+        self._tty = sys.stdout.isatty()
+        self._width = 0
+
+    def update(self, text):
+        if self._tty:
+            print('\r' + text.ljust(self._width), end='', flush=True)
+            self._width = len(text)
+
+    def done(self, text):
+        # Padded to the last update, so a shorter closing line leaves nothing behind it.
+        print(('\r' + text.ljust(self._width)) if self._tty else text, flush=True)
+        self._width = 0
+
+
 def confirm(question, assume_yes):
     if assume_yes:
         return True
@@ -357,13 +382,14 @@ def write_uicr(bridge):
 
 def program(bridge, mem):
     pages = pages_of(mem)
+    progress = Progress()
     nvmc_wait(bridge)
     bridge.write32(NVMC_CONFIG, NVMC_EEN)
     for i, page in enumerate(pages):
-        print(f'\rErasing page {i + 1}/{len(pages)} at 0x{page:05X}', end='', flush=True)
+        progress.update(f'Erasing page {i + 1}/{len(pages)} at 0x{page:05X}')
         bridge.write32(NVMC_ERASEPAGE, page)
         nvmc_wait(bridge)
-    print()
+    progress.done(f'Erased {len(pages)} pages.')
 
     # Erased flash reads 0xFFFFFFFF, so only the other words need writing, in runs of
     # consecutive addresses.
@@ -390,23 +416,24 @@ def program(bridge, mem):
             part = run[i:i + MEM_WRITE_MAX * 8]
             bridge.write_words(part[0][0], [w for _, w in part])
             done += len(part)
-            print(f'\rWriting {done * 4}/{len(words) * 4} bytes', end='', flush=True)
+            progress.update(f'Writing {done * 4}/{len(words) * 4} bytes')
     nvmc_wait(bridge)
     bridge.write32(NVMC_CONFIG, NVMC_REN)
-    print(f' ({time.monotonic() - start:.1f} s)')
+    progress.done(f'Wrote {len(words) * 4} bytes in {time.monotonic() - start:.1f} s.')
 
 
 def verify(bridge, mem):
     bad = []
     pages = pages_of(mem)
+    progress = Progress()
     for i, page in enumerate(pages):
-        print(f'\rVerifying page {i + 1}/{len(pages)}', end='', flush=True)
+        progress.update(f'Verifying page {i + 1}/{len(pages)}')
         if bridge.crc32(page, PAGE_SIZE) != zlib.crc32(page_bytes(mem, page)):
             bad.append(page)
-    print()
     if bad:
+        progress.done(f'{len(bad)} of {len(pages)} pages differ.')
         sys.exit('mm_swd: verify FAILED at ' + ', '.join(f'0x{p:05X}' for p in bad))
-    print('Verified.')
+    progress.done('Verified.')
 
 
 def start_image(bridge):
