@@ -4,7 +4,7 @@
 """Flash the mini_mighty dongle's nRF52805, and read its RTT log, over the dongle's own USB.
 
 The dongle's AVR bridges SWD to the nRF over QMK raw HID (keyboards/mini_mighty/dongle/
-swd_bridge.c, whose header comment is the protocol). Dongle PCB v7 and later only: on
+swd_bridge.c, whose header comment is the protocol). Dongle PCB v1.0.0 and later only: on
 earlier boards `info` says the wiring isn't there, and you need a J-Link on J1.
 
     mm_swd.py info                    what the dongle and its nRF report; no button needed
@@ -451,7 +451,7 @@ def do_info(bridge, args):
     if not flags & INFO_WIRED:
         print(STATUS_TEXT[ST_NO_WIRING])
         return
-    print('SWD is wired to the AVR (PCB v7 or later).')
+    print('SWD is wired to the AVR (PCB v1.0.0 or later).')
     try:
         dpidr, open_ = bridge.connect()
         print(f'nRF debug port: DPIDR 0x{dpidr:08X}; memory port '
