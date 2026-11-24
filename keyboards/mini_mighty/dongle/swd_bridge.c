@@ -247,9 +247,9 @@ static void swd_bridge_task(void) {
     }
 }
 
+// quantum/keyboard.c calls housekeeping_task_user() itself, after this.
 void housekeeping_task_kb(void) {
     swd_bridge_task();
-    housekeeping_task_user();
 }
 
 static uint8_t cmd_unlock(void) {
