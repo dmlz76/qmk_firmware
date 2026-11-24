@@ -932,5 +932,11 @@ void protocol_post_task(void) {
 }
 
 uint16_t CALLBACK_USB_GetDescriptor(const uint16_t wValue, const uint16_t wIndex, const void **const DescriptorAddress) {
+#if defined(POINTING_DEVICE_HIRES_SCROLL_ENABLE) && defined(CONSOLE_ENABLE)
+    // Fork-local diagnostic: the mouse report's interface, so the multiplier's.
+    if ((wValue >> 8) == HID_DTYPE_Report && wIndex == SHARED_INTERFACE) {
+        usb_device_state_note_hires_rdesc_read();
+    }
+#endif
     return get_usb_descriptor(wValue, wIndex, USB_ControlRequest.wLength, DescriptorAddress);
 }

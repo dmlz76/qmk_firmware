@@ -29,6 +29,10 @@ static struct usb_device_state usb_device_state = {.idle_rate = 0, .leds = 0, .p
 #ifdef POINTING_DEVICE_HIRES_SCROLL_ENABLE
 // Kept out of struct usb_device_state, which is passed by value to the notify callbacks.
 static uint8_t hires_scroll_multiplier = 0;
+#    ifdef CONSOLE_ENABLE
+// Written from the USB ISRs, read from the main loop.
+static volatile usb_hires_scroll_diag_t hires_scroll_diag;
+#    endif
 #endif
 
 __attribute__((weak)) void notify_usb_device_state_change_kb(struct usb_device_state usb_device_state) {
@@ -70,6 +74,9 @@ void usb_device_state_set_reset(void) {
     // A new host (or a re-enumeration) starts from the descriptor's default until it says
     // otherwise.
     hires_scroll_multiplier = 0;
+#    ifdef CONSOLE_ENABLE
+    hires_scroll_diag.resets++;
+#    endif
 #endif
     notify_usb_device_state_change(usb_device_state);
 }
@@ -113,9 +120,24 @@ inline uint8_t usb_device_state_get_idle_rate(void) {
 #ifdef POINTING_DEVICE_HIRES_SCROLL_ENABLE
 void usb_device_state_set_hires_scroll(uint8_t multiplier) {
     hires_scroll_multiplier = multiplier;
+#    ifdef CONSOLE_ENABLE
+    hires_scroll_diag.writes++;
+#    endif
 }
 
 uint8_t usb_device_state_get_hires_scroll(void) {
     return hires_scroll_multiplier;
 }
+
+#    ifdef CONSOLE_ENABLE
+void usb_device_state_note_hires_rdesc_read(void) {
+    hires_scroll_diag.rdesc_reads++;
+}
+
+usb_hires_scroll_diag_t usb_device_state_get_hires_diag(void) {
+    // Byte by byte: a USB ISR can bump one in between, which a log line can live with.
+    usb_hires_scroll_diag_t d = {hires_scroll_diag.resets, hires_scroll_diag.rdesc_reads, hires_scroll_diag.writes};
+    return d;
+}
+#    endif
 #endif

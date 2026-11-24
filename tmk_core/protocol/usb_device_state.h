@@ -64,6 +64,22 @@ void                  usb_device_state_reset_hid_state(void);
 // upstream sends hi-res units either way.
 void    usb_device_state_set_hires_scroll(uint8_t multiplier);
 uint8_t usb_device_state_get_hires_scroll(void);
+
+#    ifdef CONSOLE_ENABLE
+// Console diagnostics for the multiplier (fork-local, 2026-11-24), each counting mod 256:
+// bus resets, which clear it; reads of the shared interface's report descriptor, which a
+// host's HID driver makes when it starts, before it decides on the multiplier; and the
+// host's writes of it. A host that resets the device without restarting its HID driver
+// shows as a reset with neither a read nor a write after it.
+typedef struct {
+    uint8_t resets;
+    uint8_t rdesc_reads;
+    uint8_t writes;
+} usb_hires_scroll_diag_t;
+
+void                    usb_device_state_note_hires_rdesc_read(void);
+usb_hires_scroll_diag_t usb_device_state_get_hires_diag(void);
+#    endif
 #endif
 
 void notify_usb_device_state_change_kb(struct usb_device_state usb_device_state);

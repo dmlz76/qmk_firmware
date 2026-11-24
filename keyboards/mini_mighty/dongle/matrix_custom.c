@@ -22,6 +22,9 @@
 #ifdef POINTING_DEVICE_HIRES_SCROLL_ENABLE
 #    include "usb_descriptor_common.h"
 #    include "usb_device_state.h"
+#    ifdef CONSOLE_ENABLE
+#        include "timer.h"
+#    endif
 static_assert(POINTING_DEVICE_HIRES_SCROLL_MULTIPLIER == TRANSFER_WHEEL_HIRES_PER_NOTCH, "the descriptor's multiplier must match the blob's hi-res unit");
 #endif
 
@@ -421,6 +424,41 @@ static bool spi_receive_motion(transfer_blob_t *m) {
 }
 
 static void spi_report_drops(void) {}
+#endif
+
+#if defined(POINTING_DEVICE_HIRES_SCROLL_ENABLE) && defined(CONSOLE_ENABLE)
+// Windows has twice scrolled at a fraction of a line per notch until the dongle was
+// re-plugged (2026-11-24): the dongle sending whole notches while the host still divides
+// by 120. Suspected: a bus reset, which clears the multiplier, that the host's HID driver
+// doesn't see as a new device, so it never writes the multiplier again. That shows here as
+// "multiplier 0" on Windows, after a reset with no rdesc read and no write.
+// Logs on any change, but only once the host has configured the dongle again, since output
+// before that is lost. It repeats every ~10 s, for a console attached after the fact.
+// Two bytes of RAM, plus three for the counters: that leaves the 16U2's console build 7 B
+// of worst-case stack margin, down from 12 (avr_stack_depth.py, 2026-11-24).
+// Not called from matrix_scan(), which is the deepest main-loop frame, and noinline so
+// that its uprintf's argument pushes don't land in main()'s frame either.
+static void __attribute__((noinline)) hires_report_state(void) {
+    static uint8_t s_events, s_logged_s;
+    if (usb_device_state_get_configure_state() != USB_DEVICE_STATE_CONFIGURED) {
+        return;
+    }
+    usb_hires_scroll_diag_t d      = usb_device_state_get_hires_diag();
+    uint8_t                 events = d.resets + d.rdesc_reads + d.writes; // each only counts up
+    uint8_t                 now_s  = timer_read32() >> 10;                // ~1 s units
+    if (events == s_events && (uint8_t)(now_s - s_logged_s) < 10) {
+        return;
+    }
+    s_events   = events;
+    s_logged_s = now_s;
+    uprintf("hires: multiplier %u, bus resets %u, rdesc reads %u, writes %u (mod 256)\n", usb_device_state_get_hires_scroll(), d.resets, d.rdesc_reads, d.writes);
+}
+
+// swd_bridge.c defines this too, but console builds leave the bridge out (post_rules.mk).
+// quantum/keyboard.c calls housekeeping_task_user() itself, after this.
+void housekeeping_task_kb(void) {
+    hires_report_state();
+}
 #endif
 
 matrix_row_t matrix_get_row(uint8_t row) {
