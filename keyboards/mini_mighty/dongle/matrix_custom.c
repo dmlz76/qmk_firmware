@@ -478,7 +478,12 @@ uint8_t matrix_scan(void) {
     spi_report_drops();
 
     if (have_blob) {
-        dprintf("spi received: type %d\n", blob.type);
+        // The per-frame lines below are uprintf behind debug_enable rather than dprintf:
+        // the same output (DONGLE_CONSOLE_QUIET still silences them), but NO_DEBUG, which
+        // drops QMK's own debug lines, would leave them in.
+        if (debug_enable) {
+            uprintf("spi received: type %d\n", blob.type);
+        }
         switch (blob.type) {
             case 'M': {
                 // Fold in the 'M' frames queued right behind this one with the same
@@ -490,19 +495,25 @@ uint8_t matrix_scan(void) {
                 while (spi_receive_motion(&blob)) {
                     merged++;
                 }
-                dprintf("spi received: buttons %02X, x %d, y %d, v %d, v_hr %d, merged %u\n", blob.m.buttons, blob.m.x, blob.m.y, blob.m.v, transfer_mouse_v_hr(&blob), merged);
+                if (debug_enable) {
+                    uprintf("spi received: buttons %02X, x %d, y %d, v %d, v_hr %d, merged %u\n", blob.m.buttons, blob.m.x, blob.m.y, blob.m.v, transfer_mouse_v_hr(&blob), merged);
+                }
                 m_changed = true;
                 break;
             }
             case 'K':
-                dprintf("spi received: mods %02X, keys %d,%d,%d,%d,%d,%d\n", blob.k.mods, blob.k.keys[0], blob.k.keys[1], blob.k.keys[2], blob.k.keys[3], blob.k.keys[4], blob.k.keys[5]);
+                if (debug_enable) {
+                    uprintf("spi received: mods %02X, keys %d,%d,%d,%d,%d,%d\n", blob.k.mods, blob.k.keys[0], blob.k.keys[1], blob.k.keys[2], blob.k.keys[3], blob.k.keys[4], blob.k.keys[5]);
+                }
                 k_changed = true;
                 break;
 #ifdef EXTRAKEY_ENABLE
             case 'C':
             case 'S':
                 usage = (uint16_t)blob.e.usage_lo | ((uint16_t)blob.e.usage_hi << 8);
-                dprintf("spi received: extra usage %04X\n", usage);
+                if (debug_enable) {
+                    uprintf("spi received: extra usage %04X\n", usage);
+                }
                 if (blob.type == 'C') {
                     c_changed = true;
                 } else {
@@ -513,7 +524,9 @@ uint8_t matrix_scan(void) {
             case 'B':
                 // Not input, so it doesn't count as a change: that return value is what
                 // wakes a suspended host.
-                dprintf("spi received: battery peer %d kind %c level %d\n", blob.b.peer, blob.b.kind, blob.b.level);
+                if (debug_enable) {
+                    uprintf("spi received: battery peer %d kind %c level %d\n", blob.b.peer, blob.b.kind, blob.b.level);
+                }
                 peer_battery_update(blob.b.peer, blob.b.kind, blob.b.level);
                 break;
         }

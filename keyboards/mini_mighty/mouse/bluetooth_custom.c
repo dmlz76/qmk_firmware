@@ -47,8 +47,10 @@ void bluetooth_set_wheel_hires(int16_t v_hr) {
 
 void bluetooth_send_mouse(report_mouse_t *report) {
 #ifdef CONSOLE_ENABLE
-    if (debug_mouse) {
-        dprintf("bt_mouse: b%02X x%d y%d v%d h%d\n", report->buttons, report->x, report->y, report->v, report->h);
+    // uprintf behind debug_enable rather than dprintf: the same output, but
+    // NO_DEBUG (keymaps/default/config.h) drops only QMK's own debug lines.
+    if (debug_enable && debug_mouse) {
+        uprintf("bt_mouse: b%02X x%d y%d v%d h%d\n", report->buttons, report->x, report->y, report->v, report->h);
     }
 #endif
 

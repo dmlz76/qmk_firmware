@@ -97,14 +97,20 @@ void peer_battery_task(void) {
     // showing the last real level, which is the best answer available.
     uint8_t level = lowest('K');
     if (level != HID_BATTERY_UNKNOWN && level != sent_keyboard) {
-        dprintf("battery: keyboard %u%%\n", level);
+        // uprintf behind debug_enable rather than dprintf: the same output, but
+        // NO_DEBUG (which drops QMK's own debug lines) would leave it in.
+        if (debug_enable) {
+            uprintf("battery: keyboard %u%%\n", level);
+        }
         host_keyboard_battery_send(level);
         sent_keyboard = level;
     }
 
     level = lowest('M');
     if (level != HID_BATTERY_UNKNOWN && level != sent_mouse) {
-        dprintf("battery: mouse %u%%\n", level);
+        if (debug_enable) {
+            uprintf("battery: mouse %u%%\n", level);
+        }
         host_mouse_battery_send(level);
         sent_mouse = level;
     }

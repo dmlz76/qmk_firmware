@@ -47,8 +47,10 @@ void bluetooth_task(void) {
 void bluetooth_send_keyboard(report_keyboard_t *report) {
     static_assert(KEYBOARD_REPORT_KEYS == 6, "Expected 6 keys in keyboard report");
 #ifdef CONSOLE_ENABLE
-    if (debug_keyboard) {
-        dprintf("bluetooth_send_keyboard: mods %d, keys [%d,%d,%d,%d,%d,%d]\n", report->mods, report->keys[0], report->keys[1], report->keys[2], report->keys[3], report->keys[4], report->keys[5]);
+    // Our logs are uprintf behind debug_enable rather than dprintf: the same
+    // output, but NO_DEBUG (which drops QMK's own debug lines) leaves them in.
+    if (debug_enable && debug_keyboard) {
+        uprintf("bluetooth_send_keyboard: mods %d, keys [%d,%d,%d,%d,%d,%d]\n", report->mods, report->keys[0], report->keys[1], report->keys[2], report->keys[3], report->keys[4], report->keys[5]);
     }
 #endif
 
@@ -85,8 +87,8 @@ static void send_extra_usage(uint8_t type, uint16_t usage) {
 
 void bluetooth_send_consumer(uint16_t usage) {
 #ifdef CONSOLE_ENABLE
-    if (debug_keyboard) {
-        dprintf("bluetooth_send_consumer: usage %04X\n", usage);
+    if (debug_enable && debug_keyboard) {
+        uprintf("bluetooth_send_consumer: usage %04X\n", usage);
     }
 #endif
     send_extra_usage('C', usage);
@@ -94,8 +96,8 @@ void bluetooth_send_consumer(uint16_t usage) {
 
 void bluetooth_send_system(uint16_t usage) {
 #ifdef CONSOLE_ENABLE
-    if (debug_keyboard) {
-        dprintf("bluetooth_send_system: usage %04X\n", usage);
+    if (debug_enable && debug_keyboard) {
+        uprintf("bluetooth_send_system: usage %04X\n", usage);
     }
 #endif
     send_extra_usage('S', usage);
@@ -103,8 +105,8 @@ void bluetooth_send_system(uint16_t usage) {
 
 void bluetooth_send_mouse(report_mouse_t *report) {
 #ifdef CONSOLE_ENABLE
-    if (debug_mouse) {
-        dprintf("bluetooth_send_mouse: buttons %02X, x %d, y %d, v %d, h %d\n", report->buttons, report->x, report->y, report->v, report->h);
+    if (debug_enable && debug_mouse) {
+        uprintf("bluetooth_send_mouse: buttons %02X, x %d, y %d, v %d, h %d\n", report->buttons, report->x, report->y, report->v, report->h);
     }
 #endif
 }

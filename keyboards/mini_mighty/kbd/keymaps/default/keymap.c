@@ -67,3 +67,27 @@ bool process_detected_host_os_user(os_variant_t os) {
     }
     return true;
 }
+
+void keyboard_post_init_user(void) {
+#ifdef CONSOLE_ENABLE
+    debug_enable = true;
+    debug_keyboard = true;
+    debug_mouse = false;
+#else
+    debug_enable = false;
+    debug_keyboard = false;
+    debug_mouse = false;
+#endif
+}
+
+// Logs every key event. QMK's own key logging is dprintf, which NO_DEBUG
+// (config.h) strips, so this is uprintf behind the same debug flags. keycode is
+// the one after layers, e.g. KC_DEL for fn+backspace.
+bool process_record_user(uint16_t keycode, keyrecord_t *record) {
+#ifdef CONSOLE_ENABLE
+    if (debug_enable && debug_keyboard) {
+        uprintf("key: kc 0x%04X row %u col %u %S\n", keycode, record->event.key.row, record->event.key.col, record->event.pressed ? PSTR("down") : PSTR("up"));
+    }
+#endif
+    return true;
+}

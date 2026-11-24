@@ -192,9 +192,14 @@ static void wheel_send(bool clockwise) {
     } else {
         bluetooth_set_wheel_hires(clockwise ? hires : -hires);
     }
-    dprintf("wheel: dt %u units %d hires %d\n", dt, units, hires);
+    // uprintf behind debug_enable, not dprintf, so NO_DEBUG (config.h) keeps it.
+    if (debug_enable) {
+        uprintf("wheel: dt %u units %d hires %d\n", dt, units, hires);
+    }
 #else
-    dprintf("wheel: dt %u units %d\n", dt, units);
+    if (debug_enable) {
+        uprintf("wheel: dt %u units %d\n", dt, units);
+    }
 #endif
 
     report_mouse_t report = pointing_device_get_report();
