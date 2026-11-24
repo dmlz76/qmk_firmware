@@ -13,16 +13,18 @@ Measuring just 256x?x17 mm (10×?×0.675 inches), mini·mighty·kbd-wireless is 
 
 Build (after setting up your build environment):
 
-    qmk compile -kb mini_mighty/kbd_wireless -km default
+    qmk compile -kb mini_mighty/kbd_wireless/rev3_0_0 -km default  # PCB v3.0.0
 
 Flash (enter the bootloader first — see below):
 
-    qmk flash -kb mini_mighty/kbd_wireless -km default
+    qmk flash -kb mini_mighty/kbd_wireless/rev3_0_0 -km default
 
-> Build with the `qmk` CLI, not a bare `make`. `qmk` uses QMK's managed toolchain
-> (avr-gcc 15.x); a bare `make` uses whatever `avr-gcc` is first on your `PATH`, and
-> an older one (e.g. Homebrew avr-gcc 8.x) emits larger code that can overflow flash.
-> Flashing these atmega boards needs `dfu-programmer` installed.
+> Pick a revision — the bare `mini_mighty/kbd_wireless` target is a parent and is
+> not buildable (it has no matrix). Build with the `qmk` CLI, not a bare `make`:
+> `qmk` uses QMK's managed toolchain (avr-gcc 15.x); a bare `make` uses whatever
+> `avr-gcc` is first on your `PATH`, and an older one (e.g. Homebrew avr-gcc 8.x)
+> emits larger code that can overflow flash. Flashing these atmega boards needs
+> `dfu-programmer` installed.
 
 See the [build environment setup](https://docs.qmk.fm/#/getting_started_build_tools) and the [make instructions](https://docs.qmk.fm/#/getting_started_make_guide) for more information. Brand new to QMK? Start with our [Complete Newbs Guide](https://docs.qmk.fm/#/newbs).
 

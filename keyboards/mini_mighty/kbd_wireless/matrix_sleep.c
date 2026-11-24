@@ -9,8 +9,7 @@
 
 volatile bool matrix_wake_flag = false;
 
-#if MMKW_VER >= MM_PCB_VERSION(0, 2, 0)
-// Wake-on-keypress for the rev2 kbd_wireless (atmega32u4).
+// Wake-on-keypress for the kbd_wireless (atmega32u4).
 //
 // SLEEP_MODE_PWR_DOWN stops the I/O clock, so only asynchronous sources wake the
 // MCU: INTx configured for LOW LEVEL, and PCINT edges. We sense keypresses on the
@@ -56,12 +55,10 @@ ISR(PCINT0_vect) {
     matrix_wake_flag = true;
     timer_count += TIMER_INCR_ON_INTR;
 }
-#endif // MMKW_VER >= MM_PCB_VERSION(0, 2, 0)
 
 void matrix_sleep_arm(void) {
     matrix_wake_flag = false;
 
-#if MMKW_VER >= MM_PCB_VERSION(0, 2, 0)
     static const pin_t row_pins[] = MATRIX_ROW_PINS;
     static const pin_t col_pins[] = MATRIX_COL_PINS;
 
@@ -105,11 +102,9 @@ void matrix_sleep_arm(void) {
             matrix_wake_flag = true;
         }
     }
-#endif
 }
 
 void matrix_sleep_disarm(void) {
-#if MMKW_VER >= MM_PCB_VERSION(0, 2, 0)
     EIMSK  &= ~(_BV(INT0) | _BV(INT1));
     PCMSK0  = 0;
     PCICR  &= ~_BV(PCIE0);
@@ -129,5 +124,4 @@ void matrix_sleep_disarm(void) {
     for (uint8_t i = 0; i < ARRAY_SIZE(row_pins); i++) {
         gpio_set_pin_input_high(row_pins[i]);
     }
-#endif
 }

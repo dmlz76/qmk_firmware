@@ -10,8 +10,6 @@
 
 Build the PCB revision you have (after setting up your build environment):
 
-    qmk compile -kb mini_mighty/mouse/rev12 -km default     # PCB v0.12.0
-    qmk compile -kb mini_mighty/mouse/rev1_0_0 -km default  # PCB v1.0.0
     qmk compile -kb mini_mighty/mouse/rev1_1_0 -km default  # PCB v1.1.0
 
 Flash (enter the bootloader first — see below):
@@ -32,4 +30,3 @@ Enter the bootloader:
 
 * **Bootmagic reset**: Hold down the left mouse and plug in the mouse
 * **Physical reset pad (PCB v1.1.0 and later)**: Briefly short the "RESET" pad. HWB is pulled to GND on these boards, so a RESET-pad reset always enters DFU; power-cycle to restart the firmware instead.
-* **Hardware (for dead firmware, PCB v0.13.0 – v1.0.0)**: Hold TP1 (HWB) to GND, briefly short the "RESET" pad, then release TP1. HWB is only read on a RESET-pin reset, so plugging in USB with TP1 grounded just starts the firmware, and shorting RESET alone restarts it. Boards without a pull-up on HWB (before v1.1.0) can occasionally land in DFU on a bare RESET short; power-cycle to leave it.

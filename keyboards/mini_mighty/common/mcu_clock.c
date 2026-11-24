@@ -4,7 +4,7 @@
 #include <avr/power.h>
 #include "keyboard.h"
 // Already in via config.h on a board that sets MCU_RESONATOR_8MHZ. Included again
-// for the #error that MCU_CPU_DIV on a 16 MHz board (e.g. mouse rev12) must hit.
+// for the #error that MCU_CPU_DIV on a 16 MHz board must hit.
 #include "mcu_clock.h"
 
 #if defined(MCU_CPU_DIV) && MCU_CPU_DIV > 1
