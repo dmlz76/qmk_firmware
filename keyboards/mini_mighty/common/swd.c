@@ -5,27 +5,44 @@
 #include <avr/io.h>
 #include "wait.h"
 
-// Dongle v7 wiring (~/repos/mini_mighty_mouse, "WIP dongle v7"):
+// Both lines are on port D; the board's config.h picks the bits (swd.h has the defaults).
+//
+// Dongle v7 / PCB v1.0.0 wiring (~/repos/mini_mighty_mouse, mini_mighty_dongle):
 //   PD1 (U2.7) -> R9 1k -> SWCLK, with R10 2k2 to GND
 //   PD2 (U2.8) -> R12 330R -> SWDIO, with R11 2k2 up to the nRF's 3.3 V
 // The 16U2 runs from /VBUS (~4.8 V) and the nRF from 3.3 V, so:
 //   - SWCLK is push-pull, but only while a session is open. R9 against R10 and the nRF's
 //     ~13k pull-down puts the 4.8 V high at ~3.1 V on the pin.
-//   - SWDIO is open drain: driven low, or released for R11 to pull up. PORTD2 is never
-//     set, so a released pin is a plain input and the nRF never sees 4.8 V. Nothing here
-//     writes PIND either, which would toggle PORTD.
+//   - SWDIO is open drain: driven low, or released for R11 to pull up. The SWDIO bit in
+//     PORTD is never set, so a released pin is a plain input and the nRF never sees
+//     4.8 V. Nothing here writes PIND either, which would toggle PORTD.
+//
+// Mouse PCB v1.3.0 wiring (~/repos/mini_mighty_mouse, mini_mighty_mouse): the other way
+// round, for the layout.
+//   PD2 (U2.8) -> R21 100R -> SWCLK
+//   PD1 (U2.7) -> R22 100R -> SWDIO
+// Both taps join the nRF side of R18/R19 (22R), which lead to the ESD diodes and the J2
+// header. The 32U2 and the nRF share the 3.3 V rail, so no divider: the resistors only
+// limit the current from ESD, or from a J-Link driving at the same time (22R + 100R, ~27 mA
+// worst case). SWDIO has only the nRF's own ~13k pull-up. At the mouse's 2 MHz a bit is
+// microseconds long, ~10 time constants for a released SWDIO to rise. Driving it open
+// drain as on the dongle keeps the two boards on one code path, and a fight with the
+// target can't happen.
+//
 // The rest of the time both pins are inputs with the pull-up off: the AVR's reset state,
-// and what every dongle image has left them in, v6 boards (where they're unconnected)
-// included.
+// and what every image has left them in, v6 dongles (where they're unconnected) included.
+// On the mouse they must stay out of UNCONNECTED_PINS: that list's pull-up on SWCLK would
+// fight the nRF's pull-down, ~70-100 uA for as long as the board runs.
 //
 // Every pin change is a single-bit read-modify-write of a low I/O register, which GCC
 // compiles to one sbi/cbi, so the bit-bang can't race the SPI ISRs and runs with
 // interrupts on. SWD has no minimum clock rate, so an ISR stretching a bit costs nothing.
-#define SWCLK_BIT PD1
-#define SWDIO_BIT PD2
+#define SWCLK_BIT SWD_SWCLK_BIT
+#define SWDIO_BIT SWD_SWDIO_BIT
 
-// Half a clock. A released SWDIO rises through R11 in ~50 ns; at 16 MHz this, with the
-// instructions around it, gives it ~250 ns before the edge that samples it.
+// Half a clock. On the dongle a released SWDIO rises through R11 in ~50 ns; at 16 MHz
+// this, with the instructions around it, gives it ~250 ns before the edge that samples
+// it. The mouse's 2 MHz stretches that to ~2 us.
 #define SWD_DELAY() __builtin_avr_delay_cycles(2)
 
 // Request bits, as swd_xfer() takes them: APnDP, RnW, then A[3:2] in place.
@@ -62,6 +79,7 @@ uint32_t swd_data;
 // SELECT as last written: (APSEL << 4) | APBANKSEL, or 0xFF when unknown.
 static uint8_t s_select = 0xFF;
 
+#ifdef SWD_DETECT_WIRING
 bool swd_wired(void) {
     PORTD |= _BV(SWCLK_BIT); // pull-up on
     wait_us(20);
@@ -69,6 +87,7 @@ bool swd_wired(void) {
     PORTD &= ~_BV(SWCLK_BIT);
     return !high;
 }
+#endif
 
 void swd_pins_off(void) {
     DDRD &= ~_BV(SWDIO_BIT);

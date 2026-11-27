@@ -1,26 +1,39 @@
 #!/usr/bin/env python3
 # Copyright 2026 Dimitrix LLC
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""Flash the mini_mighty dongle's nRF52805, and read its RTT log, over the dongle's own USB.
+"""Flash the nRF52805 of a mini_mighty dongle or mouse, and read its RTT log, over the board's own USB.
 
-The dongle's AVR bridges SWD to the nRF over QMK raw HID (keyboards/mini_mighty/dongle/
-swd_bridge.c, whose header comment is the protocol). Dongle PCB v1.0.0 and later only: on
-earlier boards `info` says the wiring isn't there, and you need a J-Link on J1.
+The board's AVR bridges SWD to the nRF over QMK raw HID (keyboards/mini_mighty/common/
+swd_bridge.c, whose header comment is the protocol). Dongle PCB v1.0.0 and later (on
+earlier dongles `info` says the wiring isn't there, and you need a J-Link on J1), and mouse
+PCB v1.3.0 and later, over USB, with its wireless switch ON.
 
-    mm_swd.py info                    what the dongle and its nRF report; no button needed
+    mm_swd.py info                    what the board and its nRF report; no button needed
     mm_swd.py flash dongle.hex        page-erase what the image covers, program, verify
+    mm_swd.py flash [s112.hex] mouse.hex
     mm_swd.py verify dongle.hex
     mm_swd.py rtt [--elf dongle.elf]  restart the nRF and print its RTT log until Ctrl-C
     mm_swd.py read ADDR [WORDS]       hex dump of nRF memory
     mm_swd.py reset                   pin-reset the nRF
 
-Everything but `info` asks for a press of the dongle's button: the AVR won't open the nRF's
-memory to the host without one. An nRF that stays locked (a new module, or firmware that
-doesn't release APPROTECT) can only be erased whole; `flash` offers to do that, and then
-programs it.
+With a dongle and a mouse both plugged in, pick one with --device dongle or --device mouse.
 
-`flash` never touches the pairing pages [0x2E000, 0x30000), so pairings survive an update,
-unless you ask for --wipe-pairings. After any erase-all it writes UICR itself:
+Everything but `info` asks for a press of a button wired to the nRF: the AVR won't open
+the nRF's memory to the host without one. On the dongle that's its (pairing) button; on the
+mouse, its erase-bonds button. The mouse's nRF only acts on that button at boot, and the
+AVR keeps the nRF halted until it's released, so the press can't erase anything. An nRF that
+stays locked (a new module, or firmware that doesn't release APPROTECT) can only be erased
+whole; `flash` offers to do that, and then programs it.
+
+The mouse's nRF runs Nordic's S112 SoftDevice (at 0x0) below the application (from
+0x19000). Give `flash` and `verify` several HEX files and they are taken together: an app
+update needs only the app's .hex, but a mouse that gets erased whole (locked, or
+--wipe-pairings) needs s112_nrf52_7.2.0_softdevice.hex too.
+
+`flash` never touches the pages the firmware keeps at run time: the pairing pages
+[0x2E000, 0x30000), and on the mouse the BLE bonds below them [0x2C000, 0x2E000). So
+pairings survive an update, unless you ask for --wipe-pairings. After any erase-all it
+writes UICR itself:
 PSELRESET = P0.21, so the AVR's reset line works, and, on nRF52805 rev 2 and later
 (improved APPROTECT), APPROTECT = HwDisabled (0x5A), which the firmware needs in order to
 release APPROTECT at boot. Rev 1 parts keep APPROTECT erased, which is what leaves them open.
@@ -43,8 +56,39 @@ except ImportError as e:
     sys.exit(f'mm_swd: no usable hidapi binding ({e}).\n'
              'Install one: pip install hidapi, or pip install hid plus the hidapi library (brew install hidapi).')
 
-DONGLE_VID = 0x04D8
-DONGLE_PID = 0xFFF2  # TEMP, as in dongle/keyboard.json
+VID = 0x04D8
+
+
+class Board:
+    """What differs between the boards with a bridge. Told apart by USB PID."""
+
+    def __init__(self, name, pid, button, wired, reserved, softdevice, crc_words, wipe_warning):
+        self.name, self.pid, self.button, self.wired = name, pid, button, wired
+        self.reserved = reserved  # flash the firmware owns at run time; images must leave it alone
+        self.softdevice = softdevice  # the app runs on S112, which sits at 0x0
+        self.crc_words = crc_words  # per MEM_CRC32: each one holds the AVR's main loop
+        self.wipe_warning = wipe_warning
+
+
+BOARDS = [
+    Board('dongle', 0xFFF2,  # TEMP, as in dongle/keyboard.json
+          button="the dongle's button",
+          wired='SWD is wired to the AVR (dongle PCB v1.0.0 or later).',
+          reserved=range(0x2E000, 0x30000),  # mm_pair A/B
+          softdevice=False,
+          crc_words=256,  # ~70 ms at 16 MHz
+          wipe_warning='Every keyboard and mouse will have to pair again.'),
+    Board('mouse', 0xE400,  # as in mouse/info.json
+          button="the mouse's erase-bonds button",
+          wired='SWD is wired to the AVR (mouse PCB v1.3.0 or later).',
+          reserved=range(0x2C000, 0x30000),  # FDS (BLE bonds), then mm_pair A/B
+          softdevice=True,
+          # The AVR runs at 2 MHz: 256 words would hold its main loop (and the cursor, on
+          # USB) for ~0.5 s per request. 64 is ~0.1 s, for a few % more requests.
+          crc_words=64,
+          wipe_warning='The mouse will have to pair again, with the dongle and with every BLE host.'),
+]
+BOARD_BY_NAME = {b.name: b for b in BOARDS}
 RAW_USAGE_PAGE = 0xFF60
 RAW_USAGE = 0x61
 REPORT_LEN = 32
@@ -54,18 +98,20 @@ PROTOCOL_VERSION = 1
 CMD_INFO, CMD_CONNECT, CMD_UNLOCK, CMD_RELEASE, CMD_MEM_READ, CMD_MEM_WRITE, CMD_MEM_CRC32, \
     CMD_ERASEALL, CMD_RESET, CMD_AP_READ, CMD_AP_WRITE = range(0xB0, 0xBB)
 
-ST_OK, ST_PENDING, ST_DENIED, ST_BUSY, ST_BAD_ARGS, ST_NO_WIRING, ST_NOT_CONNECTED, ST_TIMEOUT, ST_LOCKED = range(9)
+ST_OK, ST_PENDING, ST_DENIED, ST_BUSY, ST_BAD_ARGS, ST_NO_WIRING, ST_NOT_CONNECTED, ST_TIMEOUT, ST_LOCKED, \
+    ST_NRF_OFF = range(10)
 ST_SWD = 0x10
 STATUS_TEXT = {
     ST_OK: 'ok',
     ST_PENDING: 'pending',
-    ST_DENIED: 'not allowed until the dongle is unlocked',
+    ST_DENIED: 'not allowed until the bridge is unlocked',
     ST_BUSY: 'busy waiting for the button',
     ST_BAD_ARGS: 'bad arguments',
     ST_NO_WIRING: 'this dongle has no SWD wiring to its AVR (PCB v6 or earlier); use a J-Link on J1',
     ST_NOT_CONNECTED: 'not connected',
     ST_TIMEOUT: 'timed out (waiting for the button, or for an erase-all)',
     ST_LOCKED: "the nRF's debug port is locked",
+    ST_NRF_OFF: "the mouse's wireless switch is OFF, which holds the nRF in reset; switch it ON",
     ST_SWD + 1: 'SWD: the nRF kept answering WAIT',
     ST_SWD + 2: 'SWD: the nRF answered FAULT',
     ST_SWD + 3: 'SWD: no answer from the nRF',
@@ -88,11 +134,12 @@ MEM_READ_MAX, MEM_WRITE_MAX, CRC_MAX_WORDS = 7, 6, 256
 # nRF52805
 FLASH_SIZE = 0x30000
 PAGE_SIZE = 0x1000
-PAIRING_PAGES = range(0x2E000, 0x30000)  # mm_pair A/B, owned by the firmware at run time
+SOFTDEVICE_END = 0x19000  # S112 7.2.0 with the MBR, below the mouse's app
+SD_MAGIC_ADDR, SD_MAGIC = 0x3004, 0x51B1E5DB  # SoftDevice info struct (MBR 0x1000 + 0x2000), nrf_sdm.h
 RAM_START, RAM_END = 0x20000000, 0x20006000
 UICR_START, UICR_END = 0x10001000, 0x10002000
 UICR_PSELRESET0, UICR_PSELRESET1, UICR_APPROTECT = 0x10001200, 0x10001204, 0x10001208
-RESET_PIN = 21  # P0.21, wired to the AVR's PD4
+RESET_PIN = 21  # P0.21, wired to the AVR's PD4 on both boards
 APPROTECT_HWDISABLED = 0x5A
 FICR_INFO_PART = 0x10000100
 FICR_PART_CODE = 0x10000130  # then the revision index, as the nRF MDK's errata checks read them
@@ -115,9 +162,10 @@ class BridgeError(Exception):
 
 
 class Bridge:
-    """One dongle's SWD bridge, over whichever hidapi binding is installed."""
+    """One board's SWD bridge, over whichever hidapi binding is installed."""
 
-    def __init__(self, path):
+    def __init__(self, path, board):
+        self.board = board
         if hasattr(hid, 'Device'):  # `hid` on PyPI (ctypes)
             dev = hid.Device(path=path)
             self._write, self._read = dev.write, lambda n, ms: dev.read(n, ms)
@@ -141,10 +189,10 @@ class Bridge:
             if not reply:
                 continue
             if reply[0] == 0xFF:
-                sys.exit('mm_swd: the dongle answers raw HID but not the SWD bridge (older firmware, or a console build).')
+                sys.exit(f'mm_swd: the {self.board.name} answers raw HID but not the SWD bridge (older firmware, or a console build).')
             if reply[0] == cmd and reply[1] == self._seq:
                 return reply[2], reply
-        raise TimeoutError(f'no reply from the dongle to command 0x{cmd:02X}')
+        raise TimeoutError(f'no reply from the {self.board.name} to command 0x{cmd:02X}')
 
     def check(self, cmd, payload=b'', timeout=5.0):
         status, reply = self.cmd(cmd, payload, timeout)
@@ -190,7 +238,7 @@ class Bridge:
         """zlib.crc32() of nbytes (a multiple of 4) of nRF memory, computed on the AVR."""
         crc, words = 0, nbytes // 4
         while words:
-            k = min(words, CRC_MAX_WORDS)
+            k = min(words, self.board.crc_words)
             r = self.check(CMD_MEM_CRC32, struct.pack('<IHI', addr, k, crc))
             crc = struct.unpack_from('<I', r, 3)[0]
             addr, words = addr + 4 * k, words - k
@@ -208,7 +256,7 @@ class Bridge:
             return 'locked'
         if status != ST_PENDING:
             raise BridgeError(CMD_UNLOCK, status)
-        print("Press and release the dongle's button (within 30 s)...", flush=True)
+        print(f'Press and release {self.board.button} (within 30 s)...', flush=True)
         while True:
             time.sleep(0.1)
             _, gate, _, result = self.info()
@@ -225,17 +273,30 @@ class Bridge:
             pass
 
 
-def find_dongle(args):
-    found = [d for d in hid.enumerate(args.vid, args.pid) if d.get('usage_page') == RAW_USAGE_PAGE and d.get('usage') == RAW_USAGE]
+def find_board(args):
+    """The one board with a bridge that --device (or --pid) leaves, as a Bridge."""
+    if args.pid is not None:
+        # A board on another PID behaves as --device says (the dongle unless told).
+        boards = [b for b in BOARDS if b.pid == args.pid] or [BOARD_BY_NAME[args.device or 'dongle']]
+        boards = [Board(**{**vars(boards[0]), 'pid': args.pid})]
+    else:
+        boards = [BOARD_BY_NAME[args.device]] if args.device else BOARDS
+    found = [(d, b) for b in boards for d in hid.enumerate(args.vid, b.pid)
+             if (d.get('vendor_id'), d.get('product_id')) == (args.vid, b.pid)
+             and d.get('usage_page') == RAW_USAGE_PAGE and d.get('usage') == RAW_USAGE]
     if not found:
-        sys.exit(f'mm_swd: no dongle found (VID {args.vid:04X}, PID {args.pid:04X}, raw HID). '
-                 'A dongle built with CONSOLE_ENABLE has no bridge.')
+        which = ' or '.join(f'{b.name} (VID {args.vid:04X}, PID {b.pid:04X})' for b in boards)
+        sys.exit(f'mm_swd: no {which} with raw HID found. A build with CONSOLE_ENABLE has no bridge, '
+                 'nor has a mouse before PCB v1.3.0.')
     if len(found) > 1:
-        sys.exit('mm_swd: more than one dongle is plugged in; unplug all but one.')
-    bridge = Bridge(found[0]['path'])
+        names = ', '.join(b.name for _, b in found)
+        hint = '; pick one with --device' if len({b.name for _, b in found}) > 1 else '; unplug all but one'
+        sys.exit(f'mm_swd: more than one board is plugged in ({names}){hint}.')
+    info, board = found[0]
+    bridge = Bridge(info['path'], board)
     version, _, flags, _ = bridge.info()
     if version != PROTOCOL_VERSION:
-        sys.exit(f'mm_swd: the dongle speaks bridge protocol {version}, this tool {PROTOCOL_VERSION}.')
+        sys.exit(f'mm_swd: the {board.name} speaks bridge protocol {version}, this tool {PROTOCOL_VERSION}.')
     if flags & INFO_NO_BUTTON:
         print('Note: bench firmware (MM_SWD_BRIDGE_NO_BUTTON); the button is not required.')
     return bridge
@@ -305,18 +366,59 @@ def load_hex(path):
     return mem
 
 
-def check_image(mem):
+def load_images(paths):
+    """Several Intel HEX files (a SoftDevice and an app) as one {address: byte}."""
+    mem = {}
+    for path in paths:
+        part = load_hex(path)
+        clash = [a for a in part if a in mem and mem[a] != part[a]]
+        if clash:
+            sys.exit(f'mm_swd: {path} overlaps an earlier image with different data at 0x{min(clash):X}.')
+        mem.update(part)
+    return mem
+
+
+def has_vectors(mem):
+    return all(a in mem for a in range(8))
+
+
+def check_image(board, mem):
     if not mem:
         sys.exit('mm_swd: the image is empty.')
-    if any(a in PAIRING_PAGES for a in mem):
-        sys.exit('mm_swd: the image writes the pairing pages [0x2E000, 0x30000), which the firmware owns. Refusing.')
+    r = board.reserved
+    if any(a in r for a in mem):
+        sys.exit(f'mm_swd: the image writes [0x{r.start:05X}, 0x{r.stop:05X}), which the {board.name} firmware owns '
+                 '(pairings' + (', BLE bonds' if board.softdevice else '') + '). Refusing.')
     if any(UICR_START <= a < UICR_END for a in mem):
         sys.exit('mm_swd: the image writes UICR. This tool manages UICR itself; build the image without it.')
     if any(a >= FLASH_SIZE for a in mem):
         sys.exit(f'mm_swd: the image has data past the end of flash (0x{max(mem):X}).')
-    if any(a not in mem for a in range(8)):
+    if not board.softdevice and not has_vectors(mem):
         sys.exit('mm_swd: the image has no vector table at 0x0. The dongle runs without a SoftDevice; '
                  'is this a keyboard or mouse image?')
+    if board.softdevice and min(mem) < SOFTDEVICE_END and not has_softdevice(mem):
+        sys.exit(f'mm_swd: the image writes below 0x{SOFTDEVICE_END:05X}, where the SoftDevice goes, but is not '
+                 'one. Is this a dongle image?')
+
+
+def has_softdevice(mem):
+    """Whether the image brings the MBR and a SoftDevice: the vector table, and the magic word
+    of the SoftDevice info struct."""
+    word = bytes(mem.get(SD_MAGIC_ADDR + i, 0xFF) for i in range(4))
+    return has_vectors(mem) and struct.unpack('<I', word)[0] == SD_MAGIC
+
+
+def check_softdevice(bridge, mem, erased):
+    """For the mouse: an app-only image needs S112 already in flash, or, after an erase-all,
+    in the image."""
+    if not bridge.board.softdevice or has_softdevice(mem):
+        return
+    if erased:
+        sys.exit("mm_swd: the nRF gets erased whole, SoftDevice included, so give the SoftDevice's .hex too: "
+                 'mm_swd.py flash s112_nrf52_7.2.0_softdevice.hex <app>.hex')
+    if bridge.read32(SD_MAGIC_ADDR) != SD_MAGIC:
+        sys.exit("mm_swd: the nRF has no SoftDevice, and the image doesn't bring one. "
+                 'Give its .hex too: mm_swd.py flash s112_nrf52_7.2.0_softdevice.hex <app>.hex')
 
 
 def pages_of(mem):
@@ -451,7 +553,7 @@ def do_info(bridge, args):
     if not flags & INFO_WIRED:
         print(STATUS_TEXT[ST_NO_WIRING])
         return
-    print('SWD is wired to the AVR (PCB v1.0.0 or later).')
+    print(bridge.board.wired)
     try:
         dpidr, open_ = bridge.connect()
         print(f'nRF debug port: DPIDR 0x{dpidr:08X}; memory port '
@@ -462,22 +564,26 @@ def do_info(bridge, args):
 
 
 def do_flash(bridge, args):
-    mem = load_hex(args.hex)
-    check_image(mem)
+    mem = load_images(args.hex)
+    check_image(bridge.board, mem)
     pages = pages_of(mem)
-    print(f'{args.hex}: {len(mem)} bytes in {len(pages)} pages, 0x{pages[0]:05X}..0x{pages[-1] + PAGE_SIZE:05X}')
+    print(f'{" + ".join(args.hex)}: {len(mem)} bytes in {len(pages)} pages, 0x{pages[0]:05X}..0x{pages[-1] + PAGE_SIZE:05X}')
+    if bridge.board.softdevice and args.wipe_pairings:
+        check_softdevice(bridge, mem, erased=True)  # before the button, not after it
     with session(bridge, allow_locked=True) as state:
         wipe = args.wipe_pairings
         if state == 'locked':
             print("The nRF is locked: a new module, or firmware that doesn't release APPROTECT.")
+            check_softdevice(bridge, mem, erased=True)
             if not confirm('Programming it means erasing all of it, its pairings included. Continue?', args.yes):
                 return 1
             wipe = True
-        elif wipe and not confirm('Erase the whole nRF, pairings included? Every keyboard and mouse will have to pair again.', args.yes):
+        elif wipe and not confirm(f'Erase the whole nRF, pairings included? {bridge.board.wipe_warning}', args.yes):
             return 1
         if wipe:
             erase_all(bridge)
         prepare(bridge)
+        check_softdevice(bridge, mem, erased=wipe)
         if wipe:
             write_uicr(bridge)
         program(bridge, mem)
@@ -488,8 +594,8 @@ def do_flash(bridge, args):
 
 
 def do_verify(bridge, args):
-    mem = load_hex(args.hex)
-    check_image(mem)
+    mem = load_images(args.hex)
+    check_image(bridge.board, mem)
     with session(bridge):
         prepare(bridge)
         verify(bridge, mem)
@@ -578,16 +684,17 @@ def do_reset(bridge, args):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
-    p.add_argument('--vid', type=lambda s: int(s, 0), default=DONGLE_VID)
-    p.add_argument('--pid', type=lambda s: int(s, 0), default=DONGLE_PID)
+    p.add_argument('--device', choices=[b.name for b in BOARDS], help='which board, when more than one is plugged in')
+    p.add_argument('--vid', type=lambda s: int(s, 0), default=VID)
+    p.add_argument('--pid', type=lambda s: int(s, 0), help='a board on another PID (treated as --device says)')
     sub = p.add_subparsers(dest='command', required=True)
-    sub.add_parser('info', help='what the dongle and its nRF report')
-    f = sub.add_parser('flash', help='program an Intel HEX image')
-    f.add_argument('hex')
-    f.add_argument('--wipe-pairings', action='store_true', help='erase the whole nRF first, pairings included')
+    sub.add_parser('info', help='what the board and its nRF report')
+    f = sub.add_parser('flash', help='program Intel HEX images (the mouse: [SoftDevice] app)')
+    f.add_argument('hex', nargs='+')
+    f.add_argument('--wipe-pairings', action='store_true', help='erase the whole nRF first, pairings (and bonds) included')
     f.add_argument('-y', '--yes', action='store_true', help="don't ask before erasing everything")
-    v = sub.add_parser('verify', help='compare the nRF with an Intel HEX image')
-    v.add_argument('hex')
+    v = sub.add_parser('verify', help='compare the nRF with Intel HEX images')
+    v.add_argument('hex', nargs='+')
     r = sub.add_parser('rtt', help="restart the nRF and print its RTT log")
     r.add_argument('--elf', help='the image ELF, to find the RTT control block without scanning RAM')
     rd = sub.add_parser('read', help='hex dump of nRF memory')
@@ -596,7 +703,7 @@ def main():
     sub.add_parser('reset', help='pin-reset the nRF')
     args = p.parse_args()
 
-    bridge = find_dongle(args)
+    bridge = find_board(args)
     try:
         handler = {'info': do_info, 'flash': do_flash, 'verify': do_verify, 'rtt': do_rtt, 'read': do_read, 'reset': do_reset}
         return handler[args.command](bridge, args) or 0

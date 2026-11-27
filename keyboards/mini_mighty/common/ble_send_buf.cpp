@@ -165,6 +165,12 @@ static uint8_t  s_sleepPin       = 0;
 static int      s_ble_state      = BLE_STATE_UNKNOWN;
 static uint16_t s_ble_phase_time = 0; // start of the current reset/init phase
 
+#ifdef MM_SWD_BRIDGE_ENABLE
+// An SWD session has the nRF (send_buf_nrf_claim()): it may be halted, so no SPI, and it
+// must stay awake, so no BLE-off.
+static bool s_nrf_claimed = false;
+#endif
+
 // Kick off (or no-op if already in progress / on) a BLE reboot. Non-blocking:
 // it only asserts reset and records the phase start; ble_is_ready() advances
 // and completes the sequence on subsequent calls.
@@ -879,6 +885,14 @@ bool send_buf_send_one(uint16_t timeout) {
         return false;
     }
 #endif
+#ifdef MM_SWD_BRIDGE_ENABLE
+    if (s_nrf_claimed) {
+        // Keep a reboot moving: a kill switch flipped back ON mid-session starts one, and
+        // only this releases its reset pulse. Anything queued waits for the release.
+        ble_is_ready();
+        return false;
+    }
+#endif
 
     transfer_blob_t blob;
     if (!s_send_buf.peek(blob)) {
@@ -957,3 +971,50 @@ bool send_buf_force_enqueue(const transfer_blob_t *blob) {
     s_send_buf.enqueue(*blob);
     return true;
 }
+
+#ifdef MM_SWD_BRIDGE_ENABLE
+bool send_buf_nrf_claim(void) {
+#    if BLE_CAN_BE_DISABLED
+    if (s_ble_state == BLE_STATE_DISABLED) {
+        return false;
+    }
+#    endif
+    s_nrf_claimed = true;
+    // After BLE_OFF_TIMEOUT_MS of USB the nRF is asleep (SLEEP low). Waking it is the same
+    // SLEEP-high-and-reset a blob would get. SWD could wake it from System OFF by itself,
+    // but the firmware would then go straight back on seeing SLEEP low.
+    power_savings_off();
+    ble_start_turn_on();
+    while (!ble_is_ready()) {
+        // as in send_buf_init(): the phases run off the system timer
+    }
+    return true;
+}
+
+void send_buf_nrf_release(void) {
+    s_nrf_claimed = false;
+#    if ENABLE_POWER_SAVINGS
+    // As after the kill switch: the idle clock stood still for the session, so without
+    // this the radio could go straight back to sleep, before a freshly flashed image has
+    // been tried over BLE.
+    s_last_processed_blob_time = timer_read32();
+#    endif
+}
+
+void send_buf_nrf_pin_reset(void) {
+#    if BLE_CAN_BE_DISABLED
+    if (s_ble_state == BLE_STATE_DISABLED) {
+        return; // the switch holds the line low already, through 1 kOhm
+    }
+#    endif
+    gpio_write_pin_high(s_sleepPin);
+    gpio_write_pin_low(s_resetPin);
+    wait_ms(BLE_RESET_HOLD_MS);
+    gpio_write_pin_high(s_resetPin);
+    // As in ble_start_turn_on(): the nRF's ring and `accepted` counter start over.
+    s_accepted_valid = false;
+    s_ring_backoff   = false;
+    s_ble_phase_time = timer_read();
+    s_ble_state      = BLE_STATE_INITIALIZING;
+}
+#endif

@@ -1,25 +1,31 @@
 // Copyright 2026 Dimitrix LLC
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-// SWD bridge: lets a host tool (keyboards/mini_mighty/tools/mm_swd.py) flash the dongle's
-// nRF52805 and read its RTT log over the dongle's own USB, through QMK raw HID. Dongle PCB
-// v7 wires SWD to PD1/PD2 (swd.c). On v6 the pins are unconnected: INFO says so, and
-// nothing else gets past that.
+// SWD bridge: lets a host tool (keyboards/mini_mighty/tools/mm_swd.py) flash the board's
+// nRF52805 and read its RTT log over the board's own USB, through QMK raw HID. Built into
+// the dongle (PCB v7 / v1.0.0 wires SWD to PD1/PD2; on v6 the pins are unconnected: INFO
+// says so, and nothing else gets past that) and the mouse (PCB v1.3.0, PD2/PD1). swd.c
+// has the wiring.
 //
 // The AVR is only a memory bridge with a gate in front of it. Everything that knows the
-// nRF's flash (NVMC, which pages to erase, verifying, finding RTT) lives in the host tool.
+// nRF's flash (NVMC, which pages to erase, verifying, finding RTT, the mouse's SoftDevice)
+// lives in the host tool.
 //
 // Why the gate: SWD reaches the running nRF's pairing keys (in flash and RAM) and can
 // replace the radio firmware. Rev 1 nRF52805s (the 2026 prototypes) never lock with
 // UICR.APPROTECT erased, and on rev 2 the firmware releases APPROTECT at every boot. Before this bridge
-// nothing on the host could reach either. So memory access takes a press of the dongle's
-// button, S1, which the AVR reads over SWD with the nRF halted. Neither host software nor a
-// broken nRF image can fake that.
+// nothing on the host could reach either. So memory access takes a press of a button wired
+// to the nRF, which the AVR reads over SWD with the nRF halted. Neither host software nor a
+// broken nRF image can fake that. On the dongle it's the pairing button, S1 on P0.00; on
+// the mouse the erase-bonds button, SW1 on P0.01 (SWD_GATE_NRF_PIN). The mouse's P0.00 is
+// WAKEUP_SLEEP, driven by the AVR, so the pin must be the board's.
 //   CLOSED      INFO, CONNECT, UNLOCK and RELEASE only.
-//   UNLOCK      If the AHB-AP answers: halt the core, make P0.00 (S1) an input with
-//               pull-up, and wait up to 30 s for S1 to read released, pressed, released.
-//               Then OPEN. Halted, the nRF can't act on the press itself (its 60 s pairing
-//               window, or the 10 s erase), and it's released before the nRF runs again.
+//   UNLOCK      If the AHB-AP answers: halt the core, make the button's pin an input with
+//               pull-up, and wait up to 30 s for it to read released, pressed, released.
+//               Then OPEN. Halted, the nRF can't act on the press itself (the dongle's 60 s
+//               pairing window or 10 s erase), and it's released before the nRF runs again.
+//               The mouse's nRF reads its button only at boot, held = erase the bonds, so
+//               that release matters there: the session's closing pin reset comes after it.
 //               If the AHB-AP doesn't answer: pin reset, give the firmware 100 ms to
 //               release APPROTECT, and look again. Still locked (a protected or fresh
 //               module, a broken image, UICR.APPROTECT Enabled, or on rev 2 not
@@ -29,8 +35,15 @@
 //               from the host.
 //   OPEN        Everything, until RELEASE or 10 s without a command.
 // A session that halted the nRF or wrote outside its RAM ends in a pin reset, which also
-// restores the firmware's own P0.00 config. -e EXTRAFLAGS=-DMM_SWD_BRIDGE_NO_BUTTON skips
-// the press: bench builds only.
+// restores the firmware's own config of the button's pin. -e EXTRAFLAGS=-DMM_SWD_BRIDGE_NO_BUTTON
+// skips the press: bench builds only.
+//
+// On the mouse, common/ble_send_buf.cpp owns the nRF: it drives ~RESET push-pull, reads the
+// wireless kill switch off that same line, and pulls SLEEP low once BLE has been idle. So a
+// session borrows the nRF from it (send_buf_nrf_claim()): awake, out of reset, and left
+// alone until the session ends. With the kill switch OFF the nRF is held in reset and the
+// claim fails with ST_NRF_OFF. The dongle's nRF is always up, and the bridge pulses its
+// open-drain /BLE_RESET itself.
 //
 // Reports are 32 bytes each way. Request: [0] command, [1] sequence, [2..] arguments.
 // Reply: [0] command, [1] sequence, [2] status (ST_*), [3..] results; bytes past the
@@ -38,7 +51,8 @@
 // clear of VIA's 0x01..0x15, and anything else gets [0] = 0xFF back, as VIA answers what it
 // doesn't handle. So a tool probing for VIA can't stumble into the bridge.
 //   INFO       -> [3] protocol version, [4] gate (GATE_*), [5] flags (INFO_*), [6] status
-//                 of the last UNLOCK, or the reason for ERASE_ONLY
+//                 of the last UNLOCK, or the reason for ERASE_ONLY. The host tells the
+//                 boards apart by USB PID.
 //   CONNECT    -> [3..6] DPIDR, [7] 1 if the AHB-AP answers
 //   UNLOCK     -> PENDING, then poll INFO for the gate. OK if already OPEN.
 //   RELEASE    Ends the session: debugger detached, pins off, pin reset if needed.
@@ -78,12 +92,13 @@ enum {
     ST_OK = 0,
     ST_PENDING,
     ST_DENIED,        // the gate doesn't allow it now
-    ST_BUSY,          // waiting for S1
+    ST_BUSY,          // waiting for the button
     ST_BAD_ARGS,
     ST_NO_WIRING,     // no SWD on PD1/PD2: a v6 dongle
     ST_NOT_CONNECTED, // CONNECT first
-    ST_TIMEOUT,       // no S1 press in time, or ERASEALL never finished
+    ST_TIMEOUT,       // no button press in time, or ERASEALL never finished
     ST_LOCKED,        // the AHB-AP doesn't answer
+    ST_NRF_OFF,       // the mouse's kill switch holds the nRF in reset
     ST_SWD = 0x10,    // + SWD_ERR_*
 };
 
@@ -98,9 +113,20 @@ enum {
 #define INFO_WIRED 0x01
 #define INFO_CONNECTED 0x02
 #define INFO_TOUCHED 0x04   // halted or written outside RAM; ending the session resets it
-#define INFO_NO_BUTTON 0x08 // a bench build: UNLOCK doesn't wait for S1
+#define INFO_NO_BUTTON 0x08 // a bench build: UNLOCK doesn't wait for the button
 
-#define NRF_RESET_PIN D4 // /BLE_RESET, open drain: see matrix_custom.c
+// The nRF pin the gate's button is on, active low.
+#ifndef SWD_GATE_NRF_PIN
+#    define SWD_GATE_NRF_PIN 0 // the dongle's S1
+#endif
+
+#ifdef BLUETOOTH_ENABLE
+// A peripheral (the mouse): ble_send_buf.cpp owns ~RESET and SLEEP. See the top.
+#    include "ble_send_buf.h"
+#    define SWD_NRF_SHARED
+#else
+#    define NRF_RESET_PIN D4 // /BLE_RESET, open drain: see matrix_custom.c
+#endif
 
 #define CTRL_AP 1
 #define CTRL_AP_ERASEALL 0x04
@@ -109,7 +135,7 @@ enum {
 #define NRF_RAM_TOP_BYTE 0x20 // RAM is 0x20000000..0x20005FFF
 #define FICR_INFO_PART 0x10000100UL
 #define P0_IN 0x50000510UL
-#define P0_PIN_CNF0 0x50000700UL
+#define P0_PIN_CNF(n) (0x50000700UL + 4 * (n))
 #define PIN_CNF_INPUT_PULLUP 0x0CUL
 #define DHCSR 0xE000EDF0UL
 #define DHCSR_DBGKEY 0xA05F0000UL
@@ -128,12 +154,15 @@ enum {
 static struct {
     uint8_t  gate;
     uint8_t  result;    // INFO [6]
-    uint8_t  debounce;  // polls in a row that S1 has read the wanted way
-    bool     armed;     // S1 has read released since UNLOCK
+    uint8_t  debounce;  // polls in a row that the button has read the wanted way
+    bool     armed;     // the button has read released since UNLOCK
     bool     on;        // pins driven
     bool     connected; // debug powered and the line in sync
     bool     touched;   // see INFO_TOUCHED
-    uint16_t t_gate;    // when the wait for S1 started
+#ifdef SWD_NRF_SHARED
+    bool claimed; // the nRF borrowed from ble_send_buf, until bridge_end()
+#endif
+    uint16_t t_gate; // when the wait for the button started
     uint16_t t_poll;
     uint16_t t_cmd; // last command, for the idle timeout
 } s;
@@ -150,6 +179,16 @@ static uint8_t bridge_connect(void) {
     if (!s.on && !swd_wired()) {
         return ST_NO_WIRING;
     }
+#ifdef SWD_NRF_SHARED
+    // Held across the RESETs within a session, so ble_send_buf doesn't put the nRF to sleep
+    // between a RESET and the CONNECT after it.
+    if (!s.claimed) {
+        if (!send_buf_nrf_claim()) {
+            return ST_NRF_OFF;
+        }
+        s.claimed = true;
+    }
+#endif
     s.on        = true;
     uint8_t r   = swd_connect();
     s.connected = !r;
@@ -163,9 +202,13 @@ static bool nrf_ahb_open(void) {
 }
 
 static void nrf_pin_reset(void) {
+#ifdef SWD_NRF_SHARED
+    send_buf_nrf_pin_reset();
+#else
     gpio_set_pin_output(NRF_RESET_PIN); // PORTD4 is 0, so this drives it low
     wait_ms(1);
     gpio_set_pin_input(NRF_RESET_PIN);
+#endif
     s.touched = false;
 }
 
@@ -193,6 +236,12 @@ static void bridge_end(void) {
     if (touched) {
         nrf_pin_reset();
     }
+#ifdef SWD_NRF_SHARED
+    if (s.claimed) {
+        send_buf_nrf_release();
+        s.claimed = false;
+    }
+#endif
     s.gate = GATE_CLOSED;
 }
 
@@ -216,7 +265,7 @@ static void gate_poll_button(void) {
         gate_fail(ST_TIMEOUT);
         return;
     }
-    bool pressed = !(swd_data & 1);
+    bool pressed = !(swd_data & (1UL << SWD_GATE_NRF_PIN));
     if (s.gate == GATE_WAIT_PRESS) {
         // Only a press that starts after UNLOCK counts: not a button already held, nor one
         // stuck down.
@@ -279,19 +328,19 @@ static uint8_t cmd_unlock(void) {
         return st;
     }
 #ifdef MM_SWD_BRIDGE_NO_BUTTON
-#    pragma message "MM_SWD_BRIDGE_NO_BUTTON: the SWD bridge opens without a press of S1. Bench builds only."
+#    pragma message "MM_SWD_BRIDGE_NO_BUTTON: the SWD bridge opens without a button press. Bench builds only."
     gate_open();
     return ST_OK;
 #else
-    // Halt, so neither the nRF nor its firmware sees the press, and S1 reads as the AVR
-    // sets it up.
+    // Halt, so neither the nRF nor its firmware sees the press, and the button's pin reads
+    // as the AVR sets it up.
     s.touched = true;
     swd_data  = DHCSR_HALT;
     uint8_t r = swd_mem(DHCSR, false);
     if (!r) r = swd_mem(DHCSR, true);
     if (!r && !(swd_data & DHCSR_S_HALT)) r = SWD_ERR_FAULT;
     swd_data = PIN_CNF_INPUT_PULLUP;
-    if (!r) r = swd_mem(P0_PIN_CNF0, false);
+    if (!r) r = swd_mem(P0_PIN_CNF(SWD_GATE_NRF_PIN), false);
     if (!r) r = swd_mem_end();
     if (r) {
         gate_fail(swd_status(r));

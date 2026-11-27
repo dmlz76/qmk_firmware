@@ -6,8 +6,22 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-// Bit-banged SWD from the 16U2 to the nRF52805, dongle PCB v7 and later. See swd.c for the
-// wiring and why the pins are driven the way they are; swd_bridge.c is the only user.
+// Bit-banged SWD from the AVR to the nRF52805: dongle PCB v7 / v1.0.0 and later, mouse PCB
+// v1.3.0 and later. See swd.c for the wiring and why the pins are driven the way they are;
+// swd_bridge.c is the only user.
+
+// The AVR's two SWD lines, as bits of port D. The defaults are the dongle's; the mouse's
+// rev*/config.h swaps them.
+#ifndef SWD_SWCLK_BIT
+#    define SWD_SWCLK_BIT PD1
+#endif
+#ifndef SWD_SWDIO_BIT
+#    define SWD_SWDIO_BIT PD2
+#endif
+
+// SWD_DETECT_WIRING: one build runs on boards with and without the wiring (dongle v6 and
+// v7), so swd_wired() probes for it. Where every board the build targets is wired (the
+// mouse's rev1_3_0), it's left undefined and swd_wired() is always true.
 
 // What an SWD operation came to. 0 is success; the bridge passes the others on to the host
 // as ST_SWD + the value.
@@ -25,9 +39,13 @@ enum {
 // PROGRESS 2026-10-27).
 extern uint32_t swd_data;
 
+#ifdef SWD_DETECT_WIRING
 // True when PD1 has v7's pull-down on it (R9 + R10, and the nRF's own on SWCLK). Only call
 // it with the pins off.
 bool swd_wired(void);
+#else
+#    define swd_wired() true
+#endif
 
 void swd_pins_off(void);
 

@@ -29,3 +29,8 @@
 #ifdef POINTING_DEVICE_HIRES_SCROLL_ENABLE
 #    define WHEEL_EXTENDED_REPORT // the hi-res wheel is int16
 #endif
+
+// SWD bridge (common/swd_bridge.c, built by post_rules.mk): SWCLK on PD1, SWDIO on PD2, and
+// the gate's button is S1 on the nRF's P0.00, the defaults in common/swd.h and swd_bridge.c.
+// One image runs on v6 dongles too, which have no SWD wiring, so swd_wired() probes for it.
+#define SWD_DETECT_WIRING

@@ -26,7 +26,6 @@
         "pointing_device": true,
         "space_cadet": false
     },
-    "processor": "atmega16u2",
     "url": "dimitrix.llc",
     "usb": {
         "device_version": "1.0.0",

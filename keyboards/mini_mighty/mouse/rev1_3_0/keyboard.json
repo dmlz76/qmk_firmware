@@ -1,0 +1,8 @@
+{
+    "processor": "atmega32u2",
+    "matrix_pins": {
+        "direct": [
+            ["C2", "B6", "B7"]
+        ]
+    }
+}
